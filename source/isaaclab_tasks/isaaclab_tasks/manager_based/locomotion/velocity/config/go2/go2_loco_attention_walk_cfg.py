@@ -36,7 +36,7 @@ from isaaclab.terrains.config.rough import ATTENTION_WALK_TERRAINS_S2_CFG  # iso
 ##
 # Pre-defined configs - Unitree Go2
 ##
-from isaaclab_assets.robots.unitree import UNITREE_GO2_ESC_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_SELF_COLIISIONS_CFG  # isort: skip
 
 # ============================================================================================================
 # 定义交互场景 CFG
@@ -69,7 +69,7 @@ class MySceneCfg(InteractiveSceneCfg):
     )
 
     # 机器人
-    robot: ArticulationCfg = UNITREE_GO2_ESC_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # 传感器(虚拟)
     # 接触力传感器

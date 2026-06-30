@@ -21,3 +21,7 @@ from .rl_cfg import *
 from .rnd_cfg import RslRlRndCfg
 from .symmetry_cfg import RslRlSymmetryCfg
 from .vecenv_wrapper import RslRlVecEnvWrapper
+
+from .rl_cfg_attention import *
+from .exporter_attention import export_policy_as_jit_attention
+from .vecenv_wrapper_attention import RslRlVecEnvWrapperAttention
