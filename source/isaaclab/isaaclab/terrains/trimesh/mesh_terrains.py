@@ -142,6 +142,12 @@ def pyramid_stairs_terrain(
     box_pos = (terrain_center[0], terrain_center[1], terrain_center[2] + num_steps * step_height / 2)
     box_middle = trimesh.creation.box(box_dims, trimesh.transformations.translation_matrix(box_pos))
     meshes_list.append(box_middle)
+
+    if cfg.holes:
+        # add a ground plane
+        ground_plane = make_plane(cfg.size, height=0.0, center_zero=False)
+        meshes_list.append(ground_plane)
+
     # origin of the terrain
     origin = np.array([terrain_center[0], terrain_center[1], (num_steps + 1) * step_height])
 
@@ -182,18 +188,50 @@ def inverted_pyramid_stairs_terrain(
     num_steps = int(min(num_steps_x, num_steps_y))
     # total height of the terrain
     total_height = (num_steps + 1) * step_height
+    additional_height = 2.0
 
     # initialize list of meshes
     meshes_list = list()
 
     # generate the border if needed
-    if cfg.border_width > 0.0 and not cfg.holes:
+    # if cfg.border_width > 0.0 and not cfg.holes:
+    if cfg.border_width > 0.0:
         # obtain a list of meshes for the border
         border_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], -0.5 * step_height]
         border_inner_size = (cfg.size[0] - 2 * cfg.border_width, cfg.size[1] - 2 * cfg.border_width)
         make_borders = make_border(cfg.size, border_inner_size, step_height, border_center)
         # add the border meshes to the list of meshes
         meshes_list += make_borders
+    
+        # Generate four boxes to cover the border area
+        border_width = cfg.border_width
+        terrain_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0]
+        box_height = total_height + additional_height
+
+        # Top box
+        top_box_dims = (cfg.size[0], border_width, box_height)
+        top_box_pos = (terrain_center[0], terrain_center[1] + cfg.size[1] / 2 - border_width / 2, terrain_center[2] - box_height / 2)
+        top_box = trimesh.creation.box(top_box_dims, trimesh.transformations.translation_matrix(top_box_pos))
+        meshes_list.append(top_box)
+ 
+        # Bottom box
+        bottom_box_dims = (cfg.size[0], border_width, box_height)
+        bottom_box_pos = (terrain_center[0], terrain_center[1] - cfg.size[1] / 2 + border_width / 2, terrain_center[2] - box_height / 2)
+        bottom_box = trimesh.creation.box(bottom_box_dims, trimesh.transformations.translation_matrix(bottom_box_pos))
+        meshes_list.append(bottom_box)
+
+        # Right box
+        right_box_dims = (border_width, cfg.size[1] - 2 * border_width, box_height)
+        right_box_pos = (terrain_center[0] + cfg.size[0] / 2 - border_width / 2, terrain_center[1], terrain_center[2] - box_height / 2)
+        right_box = trimesh.creation.box(right_box_dims, trimesh.transformations.translation_matrix(right_box_pos))
+        meshes_list.append(right_box)
+
+        # Left box
+        left_box_dims = (border_width, cfg.size[1] - 2 * border_width, box_height)
+        left_box_pos = (terrain_center[0] - cfg.size[0] / 2 + border_width / 2, terrain_center[1], terrain_center[2] - box_height / 2)
+        left_box = trimesh.creation.box(left_box_dims, trimesh.transformations.translation_matrix(left_box_pos))
+        meshes_list.append(left_box)
+
     # generate the terrain
     # -- compute the position of the center of the terrain
     terrain_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0]
@@ -245,6 +283,11 @@ def inverted_pyramid_stairs_terrain(
     # origin of the terrain
     origin = np.array([terrain_center[0], terrain_center[1], -(num_steps + 1) * step_height])
 
+    if cfg.holes:
+        # add a ground plane
+        ground_plane = make_plane(cfg.size, height=-(total_height + additional_height), center_zero=False)
+        meshes_list.append(ground_plane)
+
     return meshes_list, origin
 
 
@@ -294,7 +337,7 @@ def random_grid_terrain(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     # generate the border
-    border_width = cfg.size[0] - min(num_boxes_x, num_boxes_y) * cfg.grid_width
+    border_width = cfg.border_width
     if border_width > 0:
         # compute parameters for the border
         border_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], -terrain_height / 2)
@@ -303,7 +346,16 @@ def random_grid_terrain(
         make_borders = make_border(cfg.size, border_inner_size, terrain_height, border_center)
         meshes_list += make_borders
     else:
-        raise RuntimeError("Border width must be greater than 0! Adjust the parameter 'cfg.grid_width'.")
+      border_width = cfg.size[0] - min(num_boxes_x, num_boxes_y) * cfg.grid_width
+      if border_width > 0:
+          # compute parameters for the border
+          border_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], -terrain_height / 2)
+          border_inner_size = (cfg.size[0] - border_width, cfg.size[1] - border_width)
+          # create border meshes
+          make_borders = make_border(cfg.size, border_inner_size, terrain_height, border_center)
+          meshes_list += make_borders
+      else:
+          raise RuntimeError("Border width must be greater than 0! Adjust the parameter 'cfg.grid_width'.")
 
     # create a template grid of terrain height
     grid_dim = [cfg.grid_width, cfg.grid_width, terrain_height]
@@ -371,6 +423,11 @@ def random_grid_terrain(
     box_platform = trimesh.creation.box(dim, trimesh.transformations.translation_matrix(pos))
     meshes_list.append(box_platform)
 
+    if cfg.holes:
+        # add a ground plane
+        ground_plane = make_plane(cfg.size, height=-1.0, center_zero=False)
+        meshes_list.append(ground_plane)
+
     # specify the origin of the terrain
     origin = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], grid_height])
 
@@ -398,7 +455,7 @@ def rails_terrain(
         A tuple containing the tri-mesh of the terrain and the origin of the terrain (in m).
     """
     # resolve the terrain configuration
-    rail_height = cfg.rail_height_range[0] + difficulty * (cfg.rail_height_range[1] - cfg.rail_height_range[0])
+    rail_height = cfg.rail_height_range[1] - difficulty * (cfg.rail_height_range[1] - cfg.rail_height_range[0])
 
     # initialize list of meshes
     meshes_list = list()
@@ -591,6 +648,9 @@ def gap_terrain(
     box_dim = (cfg.platform_width, cfg.platform_width, terrain_height)
     box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(terrain_center))
     meshes_list.append(box)
+    # Add a ground plane
+    ground_plane = make_plane(cfg.size, height=-1.0, center_zero=False)
+    meshes_list.append(ground_plane)
 
     # specify the origin of the terrain
     origin = np.array([terrain_center[0], terrain_center[1], 0.0])
@@ -719,6 +779,356 @@ def star_terrain(
     return meshes_list, origin
 
 
+def star_inv_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshStarInvTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a terrain with an inverted star (star-shaped protrusion).
+
+    The terrain has a ground with a cylinder in the middle. The inverted star is made of :obj:`num_bars` bars
+    with a width of :obj:`bar_width` and a height of :obj:`bar_height`. The bars are evenly
+    spaced around the cylinder and connect to the peripheral of the terrain.
+
+    .. image:: ../../_static/terrains/trimesh/star_inv_terrain.jpg
+       :width: 40%
+       :align: center
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        A tuple containing the tri-mesh of the terrain and the origin of the terrain (in m).
+
+    Raises:
+        ValueError: If :obj:`num_bars` is less than 2.
+    """
+    # check the number of bars
+    if cfg.num_bars < 2:
+        raise ValueError(f"The number of bars in the star must be greater than 2. Received: {cfg.num_bars}")
+
+    # resolve the terrain configuration
+    bar_height = cfg.bar_height_range[0] + difficulty * (cfg.bar_height_range[1] - cfg.bar_height_range[0])
+    bar_width = cfg.bar_width_range[1] - difficulty * (cfg.bar_width_range[1] - cfg.bar_width_range[0])
+
+    # initialize list of meshes
+    meshes_list = list()
+
+    # Create the large raised terrain block
+    terrain_block_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], bar_height / 2)
+    terrain_block = trimesh.creation.box(
+        [cfg.size[0], cfg.size[1], bar_height],
+        trimesh.transformations.translation_matrix(terrain_block_center)
+    )
+
+    # Generate the star-shaped area to be carved out
+    # Generate a platform in the middle
+    platform_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], bar_height / 2)
+    platform_transform = trimesh.transformations.translation_matrix(platform_center)
+    platform = trimesh.creation.cylinder(
+        cfg.platform_width * 0.5, bar_height, sections=2 * cfg.num_bars, transform=platform_transform
+    )
+
+    # Generate bars to connect the platform to the terrain
+    star_meshes = [platform]
+    transform = np.eye(4)
+    transform[:3, -1] = np.asarray(platform_center)
+    yaw = 0.0
+    for _ in range(cfg.num_bars):
+        # compute the length of the bar based on the yaw
+        # length changes since the bar is connected to a square border
+        bar_length = cfg.size[0]
+        if yaw < 0.25 * np.pi:
+            bar_length /= np.math.cos(yaw)
+        elif yaw < 0.75 * np.pi:
+            bar_length /= np.math.sin(yaw)
+        else:
+            bar_length /= np.math.cos(np.pi - yaw)
+        # compute the transform of the bar
+        transform[0:3, 0:3] = tf.Rotation.from_euler("z", yaw).as_matrix()
+        # add the bar to the mesh
+        dim = [bar_length - bar_width, bar_width, bar_height]
+        bar = trimesh.creation.box(dim, transform)
+        star_meshes.append(bar)
+        # increment the yaw
+        yaw += np.pi / cfg.num_bars
+
+    # Subtract each star mesh from the terrain block one by one
+    carved_terrain = terrain_block
+    for mesh in star_meshes:
+        carved_terrain = carved_terrain.difference(mesh)
+
+    # Generate the exterior border using four boxes
+    inner_size = (cfg.size[0] - 2 * bar_width, cfg.size[1] - 2 * bar_width)
+    # Top box
+    top_box_dim = [cfg.size[0], bar_width, bar_height]
+    top_box_center = (0.5 * cfg.size[0], cfg.size[1] - bar_width / 2, bar_height / 2)
+    top_box_transform = trimesh.transformations.translation_matrix(top_box_center)
+    top_box = trimesh.creation.box(top_box_dim, top_box_transform)
+    carved_terrain = carved_terrain.difference(top_box)
+
+    # Bottom box
+    bottom_box_dim = [cfg.size[0], bar_width, bar_height]
+    bottom_box_center = (0.5 * cfg.size[0], bar_width / 2, bar_height / 2)
+    bottom_box_transform = trimesh.transformations.translation_matrix(bottom_box_center)
+    bottom_box = trimesh.creation.box(bottom_box_dim, bottom_box_transform)
+    carved_terrain = carved_terrain.difference(bottom_box)
+
+    # Right box
+    right_box_dim = [bar_width, inner_size[1], bar_height]
+    right_box_center = (cfg.size[0] - bar_width / 2, 0.5 * cfg.size[1], bar_height / 2)
+    right_box_transform = trimesh.transformations.translation_matrix(right_box_center)
+    right_box = trimesh.creation.box(right_box_dim, right_box_transform)
+    carved_terrain = carved_terrain.difference(right_box)
+
+    # Left box
+    left_box_dim = [bar_width, inner_size[1], bar_height]
+    left_box_center = (bar_width / 2, 0.5 * cfg.size[1], bar_height / 2)
+    left_box_transform = trimesh.transformations.translation_matrix(left_box_center)
+    left_box = trimesh.creation.box(left_box_dim, left_box_transform)
+    carved_terrain = carved_terrain.difference(left_box)
+
+    meshes_list.append(carved_terrain)
+
+    # Generate the ground
+    ground = make_plane(cfg.size, 0, center_zero=False)
+    meshes_list.append(ground)
+
+    # specify the origin of the terrain
+    origin = np.asarray([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+
+    return meshes_list, origin
+
+
+def cross_obstacle_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshCrossObstacleTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    # resolve the terrain configuration
+    cross_length = cfg.cross_length_range[0] + difficulty * (cfg.cross_length_range[1] - cfg.cross_length_range[0])
+    cross_width = np.random.uniform(cfg.cross_width_range[0], cfg.cross_width_range[1])
+    cross_height = np.random.uniform(cfg.cross_height_range[0], cfg.cross_height_range[1])
+
+    # initialize list of meshes
+    meshes_list = list()
+
+    cross_width = np.random.uniform(cfg.cross_width_range[0], cfg.cross_width_range[1])
+    cross_height = np.random.uniform(cfg.cross_height_range[0], cfg.cross_height_range[1])
+    box_dim = [cross_length, cross_width, cross_height]
+    box_center = (0.25 * cfg.size[0], 0.25 * cfg.size[1], cross_height / 2)
+    box_transform = trimesh.transformations.translation_matrix(box_center)
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+    box_dim = [cross_width, cross_length, cross_height]
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+
+
+    cross_width = np.random.uniform(cfg.cross_width_range[0], cfg.cross_width_range[1])
+    cross_height = np.random.uniform(cfg.cross_height_range[0], cfg.cross_height_range[1])
+    box_dim = [cross_length, cross_width, cross_height]
+    box_center = (0.75 * cfg.size[0], 0.25 * cfg.size[1], cross_height / 2)
+    box_transform = trimesh.transformations.translation_matrix(box_center)
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+    box_dim = [cross_width, cross_length, cross_height]
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+
+    cross_width = np.random.uniform(cfg.cross_width_range[0], cfg.cross_width_range[1])
+    cross_height = np.random.uniform(cfg.cross_height_range[0], cfg.cross_height_range[1])
+    box_dim = [cross_length, cross_width, cross_height]
+    box_center = (0.25 * cfg.size[0], 0.75 * cfg.size[1], cross_height / 2)
+    box_transform = trimesh.transformations.translation_matrix(box_center)
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+    box_dim = [cross_width, cross_length, cross_height]
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+
+    cross_width = np.random.uniform(cfg.cross_width_range[0], cfg.cross_width_range[1])
+    cross_height = np.random.uniform(cfg.cross_height_range[0], cfg.cross_height_range[1])
+    box_dim = [cross_length, cross_width, cross_height]
+    box_center = (0.75 * cfg.size[0], 0.75 * cfg.size[1], cross_height / 2)
+    box_transform = trimesh.transformations.translation_matrix(box_center)
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+    box_dim = [cross_width, cross_length, cross_height]
+    box = trimesh.creation.box(box_dim, box_transform)
+    meshes_list.append(box)
+
+    # Generate the ground
+    ground = make_plane(cfg.size, 0, center_zero=False)
+    meshes_list.append(ground)
+
+    # specify the origin of the terrain
+    origin = np.asarray([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+
+    return meshes_list, origin
+
+
+def pallets_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshPalletsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a terrain with pallets (multiple square ring platforms at different heights).
+
+    The terrain has a central platform with a deep pit around it. Inside the pit, there are multiple
+    square ring platforms distributed at different distances, with varying widths and heights.
+
+    .. image:: ../../_static/terrains/trimesh/pallets_terrain.jpg
+       :width: 40%
+       :align: center
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        A tuple containing the list of tri-meshes of the terrain and the origin of the terrain (in m).
+    """
+    # Initialize list of meshes
+    meshes_list = list()
+    # Constants for terrain generation
+    terrain_height = 1.0
+    
+    # Calculate terrain center
+    terrain_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0)
+    
+    # Calculate the available space for rings
+    available_space = min(cfg.size[0], cfg.size[1]) - cfg.platform_width
+    if cfg.border_width > 0.0:
+        available_space -= 2 * cfg.border_width
+    available_space /= 2  # Since we're working from the center
+    
+    # Generate the central platform (上平面高度为0)
+    platform_dim = (cfg.platform_width, cfg.platform_width, terrain_height)
+    # 平台中心z坐标设为terrain_height/2，确保上平面高度为0
+    platform_pos = (terrain_center[0], terrain_center[1], 0.0 - terrain_height / 2)
+    platform = trimesh.creation.box(platform_dim, trimesh.transformations.translation_matrix(platform_pos))
+    meshes_list.append(platform)
+    
+    # Generate multiple square ring platforms until space is filled
+    current_radius = cfg.platform_width / 2  # 从中心平台边缘开始
+    ring_index = 0
+    
+    # 计算基于difficulty的宽度和间隔参数权重
+    width_weight = 1.0 - difficulty  # 宽度权重：高难度时大
+    spacing_weight = difficulty  # 间隔权重：高难度时大
+    
+    # 确保至少生成一个环
+    has_generated_any_ring = False
+    
+    # 生成环的策略调整：使用更积极的方式填充空间
+    while True:
+        # 计算基于difficulty的环间距范围
+        spacing_min = cfg.ring_spacing_range[0]
+        spacing_max = cfg.ring_spacing_range[1]
+        # 低难度时，间距更偏向最小值；高难度时，更偏向最大值
+        spacing_mid = spacing_min + spacing_weight * (spacing_max - spacing_min)
+        
+        if cfg.randomize_widths:
+            # 基于difficulty的随机间距：低难度时更接近最小值
+            ring_spacing = np.random.normal(spacing_mid, (spacing_max - spacing_min) / 6)
+            ring_spacing = np.clip(ring_spacing, spacing_min, spacing_max)
+        else:
+            # 直接使用中间值
+            ring_spacing = spacing_mid
+        
+        # 移动到下一个环的位置
+        current_radius += ring_spacing
+        
+        # 计算基于difficulty的环宽度范围
+        width_min = cfg.ring_width_range[0]
+        width_max = cfg.ring_width_range[1]
+        # 修正：低难度时，宽度更偏向最小值；高难度时，更偏向最大值
+        width_mid = width_min + width_weight * (width_max - width_min)
+        
+        if cfg.randomize_widths:
+            # 基于difficulty的随机宽度：低难度时更接近最小值
+            ring_width = np.random.normal(width_mid, (width_max - width_min) / 6)
+            ring_width = np.clip(ring_width, width_min, width_max)
+        else:
+            # 直接使用中间值
+            ring_width = width_mid
+        
+        # 检查是否还有足够空间放置这个环
+        remaining_space = available_space - current_radius
+        
+        # 如果剩余空间不足，但我们还没有生成任何环，就尝试调整宽度以适应
+        if remaining_space <= 0:
+            if not has_generated_any_ring and available_space > current_radius - ring_spacing:
+                # 尝试创建一个尽可能宽的环来填充剩余空间
+                ring_width = max(0.1, available_space - (current_radius - ring_spacing))
+                current_radius = current_radius - ring_spacing
+            else:
+                break
+        
+        # 计算环高度
+        if cfg.randomize_heights:
+            # 随机高度，以0为基准
+            ring_height = np.random.uniform(cfg.ring_height_range[0], cfg.ring_height_range[1])
+        else:
+            # 使用正弦函数创建有规律的分布，以0为基准
+            t = (np.sin(ring_index * 0.5) + 1.0) * 0.5 - 0.5  # 范围在[-0.5, 0.5]
+            # 应用难度影响：低难度时更接近0，高难度时变化更大
+            t *= difficulty
+            # 映射到配置的高度范围
+            ring_height = t * 2 * max(abs(cfg.ring_height_range[0]), abs(cfg.ring_height_range[1]))
+            ring_height = np.clip(ring_height, cfg.ring_height_range[0], cfg.ring_height_range[1])
+        
+        # 计算环尺寸
+        ring_outer_size = (2 * (current_radius + ring_width), 2 * (current_radius + ring_width))
+        ring_inner_size = (2 * current_radius, 2 * current_radius)
+        # 环的中心z坐标以0为基准，加上ring_height
+        ring_center = (terrain_center[0], terrain_center[1], ring_height - cfg.ring_thickness/2.0)
+        
+        # 生成环
+        ring_meshes = make_border(ring_outer_size, ring_inner_size, cfg.ring_thickness, ring_center)
+        meshes_list += ring_meshes
+        
+        has_generated_any_ring = True
+        
+        # 更新当前半径到环的外边缘
+        current_radius += ring_width
+        ring_index += 1
+        
+        # 添加额外检查，防止无限循环
+        if ring_index > 50:  # 限制最大环数
+            break
+    
+    # 计算实际的最外环半径
+    actual_outer_radius = current_radius - ring_spacing
+    
+    # 计算理论上的最大可用半径
+    theoretical_max_radius = min(cfg.size[0], cfg.size[1]) / 2
+    if cfg.border_width > 0.0:
+        theoretical_max_radius -= cfg.border_width
+
+    # 计算外围空白区域宽度
+    outer_gap = theoretical_max_radius - actual_outer_radius
+    
+    # 确定自适应的border_width
+    adaptive_border_width = cfg.border_width
+    # 如果外围空白区域超过阈值，则增加border_width来填充
+    if outer_gap > cfg.border_fill_threshold:
+        adaptive_border_width = min(cfg.max_border_width, cfg.border_width + outer_gap)
+    
+    # 生成自适应的外边框
+    if adaptive_border_width > 0.0:
+        border_size = (cfg.size[0], cfg.size[1])
+        inner_size = (cfg.size[0] - 2 * adaptive_border_width, cfg.size[1] - 2 * adaptive_border_width)
+        border_center = (0.5 * cfg.size[0], 0.5 * cfg.size[1], -cfg.pit_depth / 2)
+        meshes_list += make_border(border_size, inner_size, cfg.pit_depth, border_center)
+    
+    # 生成地面（坑的底部）
+    ground_dim = (cfg.size[0] - 2 * cfg.border_width, cfg.size[1] - 2 * cfg.border_width, terrain_height)
+    ground_pos = (terrain_center[0], terrain_center[1], -cfg.pit_depth - terrain_height / 2)
+    ground = trimesh.creation.box(ground_dim, trimesh.transformations.translation_matrix(ground_pos))
+    meshes_list.append(ground)
+    
+    # 指定地形的原点
+    origin = np.array([terrain_center[0], terrain_center[1], 0.0])
+    
+    return meshes_list, origin
+
 def repeated_objects_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRepeatedObjectsTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:
@@ -806,6 +1216,8 @@ def repeated_objects_terrain(
         raise ValueError(f"Unknown terrain configuration: {cfg}")
     # constants for the terrain
     platform_clearance = 0.1
+    # 定义地形边缘的安全距离
+    terrain_edge_clearance = cfg.terrain_edge_clearance
 
     # initialize list of meshes
     meshes_list = list()
@@ -851,13 +1263,344 @@ def repeated_objects_terrain(
             object_mesh = object_func(center=object_centers[index], height=ob_height, **object_kwargs)
             meshes_list.append(object_mesh)
 
+    # 移除地形边缘 1.0 米内的障碍物
+    valid_meshes = []
+    for index, obj_center in enumerate(object_centers):
+        # 检查对象中心是否在地形边缘 1.0 米内
+        if (
+            obj_center[0] >= terrain_edge_clearance and
+            obj_center[0] <= cfg.size[0] - terrain_edge_clearance and
+            obj_center[1] >= terrain_edge_clearance and
+            obj_center[1] <= cfg.size[1] - terrain_edge_clearance
+        ):
+            valid_meshes.append(meshes_list[index])
+    meshes_list = valid_meshes
+
     # generate a ground plane for the terrain
     ground_plane = make_plane(cfg.size, height=0.0, center_zero=False)
     meshes_list.append(ground_plane)
+    # # generate a platform in the middle
+    # dim = (cfg.platform_width, cfg.platform_width, 0.5 * platform_height)
+    # pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.25 * platform_height)
+    # platform = trimesh.creation.box(dim, trimesh.transformations.translation_matrix(pos))
+    # meshes_list.append(platform)
+
+    return meshes_list, origin
+
+
+def mesh_stepping_stones_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshSteppingStonesTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a stepping stones terrain using mesh objects (boxes and cylinders).
+    
+    The terrain has a ground plane with holes (pits) and stepping stones (boxes and cylinders)
+    placed in a grid-like pattern. A platform is placed in the center of the terrain.
+    
+    The stepping stones are placed such that they form a path that the agent can traverse.
+    The stones can be slightly tilted to increase the challenge.
+    
+    .. image:: ../../_static/terrains/trimesh/mesh_stepping_stones_terrain.jpg
+       :width: 40%
+       :align: center
+    
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+    
+    Returns:
+        A tuple containing the tri-mesh of the terrain and the origin of the terrain (in m).
+    """
+    # Resolve the terrain configuration based on difficulty
+    # -- Stone parameters (curriculum-based)
+    stone_width = cfg.stone_params_start.width + difficulty * (
+        cfg.stone_params_end.width - cfg.stone_params_start.width
+    )
+    stone_spacing = cfg.stone_params_start.spacing + difficulty * (
+        cfg.stone_params_end.spacing - cfg.stone_params_start.spacing
+    )
+    stone_height = cfg.stone_params_start.height + difficulty * (
+        cfg.stone_params_end.height - cfg.stone_params_start.height
+    )
+    max_tilt_angle = cfg.stone_params_start.max_tilt_angle + difficulty * (
+        cfg.stone_params_end.max_tilt_angle - cfg.stone_params_start.max_tilt_angle
+    )
+    
+    # Initialize list of meshes
+    meshes_list = list()
+    
+    # Compute quantities
+    origin = np.asarray((0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0))
+    
+    # Generate the ground plane
+    ground_plane = make_plane(cfg.size, height=-cfg.pit_depth, center_zero=False)
+    meshes_list.append(ground_plane)
+    
+    # Calculate the grid for stepping stones
+    grid_size_x = int(cfg.size[0]/stone_spacing) + 1
+    grid_size_y = int(cfg.size[1]/stone_spacing) + 1
+    
+    # Calculate platform boundaries
+    platform_x_min = 0.5 * cfg.size[0] - 0.4 * cfg.platform_width
+    platform_x_max = 0.5 * cfg.size[0] + 0.4 * cfg.platform_width
+    platform_y_min = 0.5 * cfg.size[1] - 0.4 * cfg.platform_width
+    platform_y_max = 0.5 * cfg.size[1] + 0.4 * cfg.platform_width
+    
+    # Generate stepping stones in a grid pattern
+    for i in range(grid_size_x):
+        for j in range(grid_size_y):
+            # Calculate stone position
+            x_pos = (i + 0.5) * stone_spacing
+            y_pos = (j + 0.5) * stone_spacing
+            
+            # Skip if the stone would be inside the platform
+            if (platform_x_min <= x_pos <= platform_x_max and 
+                platform_y_min <= y_pos <= platform_y_max):
+                continue
+            
+            # Skip if the stone would be outside the border
+            if (x_pos <= cfg.border_width*0.5 or (cfg.size[0]-cfg.border_width*0.5) <= x_pos) or \
+               (y_pos <= cfg.border_width*0.5 or (cfg.size[1]-cfg.border_width*0.5) <= y_pos):
+                continue
+            
+            # Randomly choose stone type from available options
+            stone_type = np.random.choice(cfg.stone_types)
+            
+            # Add random height variation
+            height_variation = np.random.uniform(-cfg.height_variation, cfg.height_variation)
+            actual_height = stone_height + height_variation
+            
+            # Create the stone
+            if stone_type == "box":
+                stone_mesh = make_box(
+                    length=stone_width,
+                    width=stone_width,
+                    height=actual_height,
+                    center=(x_pos, y_pos, -actual_height/2),
+                    max_yx_angle=max_tilt_angle,
+                    degrees=False,  # max_tilt_angle is in radians
+                )
+            elif stone_type == "cylinder":
+                stone_mesh = make_cylinder(
+                    radius=stone_width*0.6,
+                    height=actual_height,
+                    center=(x_pos, y_pos, -actual_height/2),
+                    max_yx_angle=max_tilt_angle,
+                    degrees=False,  # max_tilt_angle is in radians
+                )
+            else:
+                # Skip unknown stone types
+                continue
+            
+            meshes_list.append(stone_mesh)
+    
+    def create_random_obstacles(terrain_size, obstacle_num_range, obstacle_size_range, obstacle_height_scale, obstacle_max_tilt_angle, difficulty, platform_x_min, platform_x_max, platform_y_min, platform_y_max):
+        """Create random obstacle boxes in the terrain, avoiding platform area."""
+        obstacle_meshes = []
+        
+        # Calculate number of obstacles based on difficulty
+        obstacles_num = int(obstacle_num_range[0] + difficulty * (obstacle_num_range[1] - obstacle_num_range[0]))
+        
+        # Calculate obstacle size range based on difficulty
+        obstacle_size = obstacle_size_range[0] + difficulty * (obstacle_size_range[1] - obstacle_size_range[0])
+        
+        # Maximum attempts to find a valid position for each obstacle
+        max_attempts = 50
+        
+        for _ in range(obstacles_num):
+            # Try to find a valid position that doesn't overlap with platform
+            valid_position_found = False
+            attempts = 0
+            
+            while not valid_position_found and attempts < max_attempts:
+                # Random position within terrain bounds (with margin to avoid edge issues)
+                margin = obstacle_size / 2
+                obstacle_x = np.random.uniform(margin, terrain_size[0] - margin)
+                obstacle_y = np.random.uniform(margin, terrain_size[1] - margin)
+                
+                # Check if obstacle overlaps with platform
+                # We'll use a simple bounding box check
+                obstacle_x_min = obstacle_x - obstacle_size/2
+                obstacle_x_max = obstacle_x + obstacle_size/2
+                obstacle_y_min = obstacle_y - obstacle_size/2
+                obstacle_y_max = obstacle_y + obstacle_size/2
+                
+                # Check for overlap with platform
+                x_overlap = (obstacle_x_min < platform_x_max) and (obstacle_x_max > platform_x_min)
+                y_overlap = (obstacle_y_min < platform_y_max) and (obstacle_y_max > platform_y_min)
+                
+                if not (x_overlap and y_overlap):
+                    # No overlap with platform, position is valid
+                    valid_position_found = True
+                else:
+                    # Overlap detected, try again
+                    attempts += 1
+            
+            # If we couldn't find a valid position after max attempts, skip this obstacle
+            if not valid_position_found:
+                continue
+                
+            # Set z position to 0 (above the pits)
+            obstacle_z = 0.0
+            
+            # Create obstacle cube with only yaw rotation
+            obstacle_mesh = make_box(
+                length=obstacle_size,
+                width=obstacle_size,
+                height=obstacle_size * obstacle_height_scale,
+                center=(obstacle_x, obstacle_y, obstacle_z),
+                max_yx_angle=obstacle_max_tilt_angle,
+                degrees=False,
+            )
+            
+            obstacle_meshes.append(obstacle_mesh)
+        
+        return obstacle_meshes
+
+    # Generate random obstacles in the terrain
+    obstacle_meshes = create_random_obstacles(
+        cfg.size, 
+        cfg.obstacle_num_range,
+        cfg.obstacle_size_range,
+        cfg.obstacle_height_scale,
+        cfg.obstacle_max_tilt_angle,
+        difficulty,
+        platform_x_min,
+        platform_x_max,
+        platform_y_min,
+        platform_y_max
+    )
+    meshes_list.extend(obstacle_meshes)
+
     # generate a platform in the middle
-    dim = (cfg.platform_width, cfg.platform_width, 0.5 * platform_height)
-    pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.25 * platform_height)
+    dim = (cfg.platform_width, cfg.platform_width, cfg.platform_height)
+    pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1], -0.5 * cfg.platform_height)
     platform = trimesh.creation.box(dim, trimesh.transformations.translation_matrix(pos))
     meshes_list.append(platform)
+
+    # generate the border
+    border_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], -cfg.platform_width/2]
+    border_inner_size = (cfg.size[0] - 2 * cfg.border_width, cfg.size[1] - 2 * cfg.border_width)
+    make_borders = make_border(cfg.size, border_inner_size, cfg.platform_width, border_center)
+    # add the border meshes to the list of meshes
+    meshes_list += make_borders
+    
+    return meshes_list, origin
+
+
+def mesh_platform_bars_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshPlatformBarsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a terrain with a platform and bars connecting random points on the border.
+    
+    The terrain has a ground plane with pits and a central platform. Bars are placed
+    between random points on opposite sides of the terrain border, creating bridges across the pits.
+    
+    .. image:: ../../_static/terrains/trimesh/mesh_platform_bars_terrain.jpg
+       :width: 40%
+       :align: center
+    
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+    
+    Returns:
+        A tuple containing the tri-mesh of the terrain and the origin of the terrain (in m).
+    """
+    # Initialize list of meshes
+    meshes_list = list()
+    
+    # Compute quantities
+    origin = np.asarray((0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0))
+    
+    def create_bars_connecting_opposite_borders(terrain_size, bar_height, bar_width_range,
+                                              bars_num_range, pit_depth, difficulty):
+        """Create bar meshes connecting random points on opposite sides of the terrain border."""
+        bar_meshes = []
+        
+        # Calculate number of bars based on difficulty
+        bars_num = int(bars_num_range[0] + difficulty * (bars_num_range[1] - bars_num_range[0]))
+        
+        # Calculate bar width based on difficulty
+        bar_width = bar_width_range[1] + difficulty * (bar_width_range[0] - bar_width_range[1])
+        
+        # Calculate bar center Z coordinate (bars should start from pit bottom and extend upward)
+        bar_center_z = -pit_depth + bar_height/2
+        
+        # Define pairs of opposite borders
+        border_pairs = [
+            # Bottom and top borders
+            [
+                lambda: (np.random.uniform(0, terrain_size[0]), 0),  # Bottom
+                lambda: (np.random.uniform(0, terrain_size[0]), terrain_size[1])  # Top
+            ],
+            # Left and right borders
+            [
+                lambda: (0, np.random.uniform(0, terrain_size[1])),  # Left
+                lambda: (terrain_size[0], np.random.uniform(0, terrain_size[1]))  # Right
+            ]
+        ]
+        
+        for _ in range(bars_num):
+            # Randomly select a pair of opposite borders
+            pair_index = np.random.randint(len(border_pairs))
+            border_pair = border_pairs[pair_index]
+            
+            # Get random points on the two opposite borders
+            point1 = border_pair[0]()
+            point2 = border_pair[1]()
+            
+            # Calculate the midpoint between the two points
+            midpoint_x = (point1[0] + point2[0]) / 2
+            midpoint_y = (point1[1] + point2[1]) / 2
+            
+            # Calculate the distance between the two points (this will be the bar length)
+            distance = np.sqrt((point2[0] - point1[0])**2 + (point2[1] - point1[1])**2)
+            
+            # Calculate the angle between the two points
+            angle = np.arctan2(point2[1] - point1[1], point2[0] - point1[0])
+            
+            # Create bar using trimesh.creation.box
+            bar_dim = (distance, bar_width, bar_height)
+            
+            # Create transformation matrix with translation and rotation
+            translation_matrix = trimesh.transformations.translation_matrix((midpoint_x, midpoint_y, bar_center_z))
+            rotation_matrix = trimesh.transformations.rotation_matrix(angle, [0, 0, 1])
+            transform_matrix = trimesh.transformations.concatenate_matrices(translation_matrix, rotation_matrix)
+            
+            bar_mesh = trimesh.creation.box(bar_dim, transform=transform_matrix)
+            bar_meshes.append(bar_mesh)
+        
+        return bar_meshes
+
+    # Create bars connecting opposite borders
+    bars_meshes = create_bars_connecting_opposite_borders(
+        cfg.size, 
+        cfg.bar_height,
+        cfg.bar_width_range,
+        cfg.bars_num_range,
+        cfg.pit_depth,
+        difficulty,
+    )
+    
+    # Add bars to the meshes list
+    meshes_list.extend(bars_meshes)
+    
+    # Create the central platform
+    platform_height = cfg.platform_height if cfg.platform_height >= 0.0 else cfg.bar_height
+    platform_dim = (cfg.platform_width, cfg.platform_width, platform_height)
+    platform_pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1], -cfg.pit_depth + platform_height/2)
+    platform_mesh = trimesh.creation.box(platform_dim, trimesh.transformations.translation_matrix(platform_pos))
+    meshes_list.append(platform_mesh)
+
+    # Create the ground plane at pit bottom
+    ground_plane = make_plane(cfg.size, height=-cfg.pit_depth, center_zero=False)
+    meshes_list.append(ground_plane)
+
+    # Generate the border
+    border_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], -cfg.platform_width/2]
+    border_inner_size = (cfg.size[0] - 2 * cfg.border_width, cfg.size[1] - 2 * cfg.border_width)
+    make_borders = make_border(cfg.size, border_inner_size, cfg.platform_width, border_center)
+    # Add the border meshes to the list of meshes
+    meshes_list.extend(make_borders)
 
     return meshes_list, origin

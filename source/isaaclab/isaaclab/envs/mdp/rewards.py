@@ -88,6 +88,20 @@ def ang_vel_xy_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntit
     return torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
 
 
+def ang_vel_x_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize xy-axis base angular velocity using L2 squared kernel."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    return torch.square(asset.data.root_ang_vel_b[:, 0])
+
+
+def ang_vel_y_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize xy-axis base angular velocity using L2 squared kernel."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    return torch.square(asset.data.root_ang_vel_b[:, 1])
+
+
 def flat_orientation_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize non-flat base orientation using L2 squared kernel.
 
@@ -186,6 +200,17 @@ def joint_deviation_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Scene
     return torch.sum(torch.abs(angle), dim=1)
 
 
+def joint_deviation_l2(env: ManagerBasedRLEnv, deviation_soft_limit: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize joint positions that deviate from the default one."""
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    # compute out of limits constraints
+    angle = torch.square(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids])
+    # clip deviations smaller than soft limit to zero
+    angle -= deviation_soft_limit * torch.ones_like(angle)
+    return torch.sum(angle.clamp_min(0.0), dim=1)
+
+
 def joint_pos_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize joint positions if they cross the soft limits.
 
@@ -225,6 +250,28 @@ def joint_vel_limits(
     return torch.sum(out_of_limits, dim=1)
 
 
+def joint_torque_limits(
+    env: ManagerBasedRLEnv, soft_ratio: float, max_torque: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Penalize joint torques if they cross the soft limits.
+
+    This is computed as a sum of the absolute value of the difference between the joint torques and the soft limits.
+
+    Args:
+        soft_ratio: The ratio of the soft limits to be used.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    # compute out of limits constraints
+    out_of_limits = (
+        torch.abs(asset.data.applied_torque[:, asset_cfg.joint_ids])
+        - torch.ones_like(asset.data.applied_torque[:, asset_cfg.joint_ids]) * max_torque * soft_ratio
+    )
+    # clip per joint torque (Nm) to avoid huge penalties
+    out_of_limits = out_of_limits.clip(min=0.0, max=5.0)
+    return torch.sum(out_of_limits, dim=1)
+
+
 """
 Action penalties.
 """
@@ -257,6 +304,16 @@ def action_rate_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
 def action_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Penalize the actions using L2 squared kernel."""
     return torch.sum(torch.square(env.action_manager.action), dim=1)
+
+
+def action_rate_l2_limit(env: ManagerBasedRLEnv) -> torch.Tensor:
+    # Calculate action difference with clamping
+    action_diff = torch.clamp(
+        env.action_manager.action - env.action_manager.prev_action,
+        min=-25.0,
+        max=25.0
+    )
+    return torch.sum(torch.square(action_diff), dim=1)
 
 
 """

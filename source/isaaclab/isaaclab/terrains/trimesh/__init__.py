@@ -26,4 +26,9 @@ from .mesh_terrains_cfg import (
     MeshRepeatedCylindersTerrainCfg,
     MeshRepeatedPyramidsTerrainCfg,
     MeshStarTerrainCfg,
+    MeshStarInvTerrainCfg,
+    MeshCrossObstacleTerrainCfg,
+    MeshPalletsTerrainCfg,
+    MeshSteppingStonesTerrainCfg,
+    MeshPlatformBarsTerrainCfg,
 )

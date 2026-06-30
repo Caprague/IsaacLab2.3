@@ -87,6 +87,7 @@ class MeshRandomGridTerrainCfg(SubTerrainBaseCfg):
     If :obj:`holes` is True, the terrain will have randomized grid cells only along the plane extending
     from the platform (like a plus sign). The remaining area remains empty and no border will be added.
     """
+    border_width: float = 0.0
 
 
 @configclass
@@ -170,6 +171,76 @@ class MeshFloatingRingTerrainCfg(SubTerrainBaseCfg):
 
 
 @configclass
+class MeshStarInvTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with a star pattern."""
+
+    function = mesh_terrains.star_inv_terrain
+
+    num_bars: int = MISSING
+    """The number of bars per-side the star. Must be greater than 2."""
+    bar_width_range: tuple[float, float] = MISSING
+    """The minimum and maximum width of the bars in the star (in m)."""
+    bar_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the bars in the star (in m)."""
+    platform_width: float = 1.0
+    """The width of the cylindrical platform at the center of the terrain. Defaults to 1.0."""
+
+
+@configclass
+class MeshCrossObstacleTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with a star pattern."""
+
+    function = mesh_terrains.cross_obstacle_terrain
+
+    cross_length_range: tuple[float, float] = MISSING
+    cross_width_range: tuple[float, float] = MISSING
+    cross_height_range: tuple[float, float] = MISSING
+
+    platform_width: float = 1.0
+
+
+@configclass
+class MeshPalletsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with pallets (multiple square ring platforms at different heights)."""
+
+    function = mesh_terrains.pallets_terrain
+
+    pit_depth: float = 2.0
+    """The depth of the pit (in m). Defaults to 2.0."""
+    
+    ring_spacing_range: tuple[float, float] = (0.3, 0.8)
+    """The minimum and maximum spacing between adjacent rings (in m)."""
+    
+    ring_width_range: tuple[float, float] = (0.5, 1.5)
+    """The minimum and maximum width of the rings (in m)."""
+    
+    ring_height_range: tuple[float, float] = (-0.5, 0.5)
+    """The minimum and maximum height of the rings (in m).
+    Values around 0 indicate height relative to the center platform (which is at 0 height)."""
+    
+    ring_thickness: float = 0.3
+    """The thickness (along z) of the rings (in m). Defaults to 0.3."""
+    
+    platform_width: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""
+    
+    border_width: float = 0.5
+    """The base width of the border around the terrain (in m). Defaults to 0.5."""
+    
+    max_border_width: float = 2.0
+    """The maximum allowable width of the border (in m). Defaults to 2.0."""
+    
+    border_fill_threshold: float = 0.3
+    """The threshold (as a fraction of border_width) for when to fill the border. Defaults to 0.8."""
+    
+    randomize_heights: bool = True
+    """Whether to randomize the heights of the rings. Defaults to True."""
+    
+    randomize_widths: bool = True
+    """Whether to randomize the widths of the rings. Defaults to True."""
+
+
+@configclass
 class MeshStarTerrainCfg(SubTerrainBaseCfg):
     """Configuration for a terrain with a star pattern."""
 
@@ -238,6 +309,8 @@ class MeshRepeatedObjectsTerrainCfg(SubTerrainBaseCfg):
 
     If the value is negative, the height is the same as the object height.
     """
+
+    terrain_edge_clearance: float = 1.0
 
     def __post_init__(self):
         if self.max_height_noise is not None:
@@ -318,3 +391,106 @@ class MeshRepeatedCylindersTerrainCfg(MeshRepeatedObjectsTerrainCfg):
 
     object_params_end: ObjectCfg = MISSING
     """The box curriculum parameters at the end of the curriculum."""
+
+
+@configclass
+class MeshSteppingStonesTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for mesh-based stepping stones terrain."""
+
+    @configclass
+    class StoneCfg:
+        """Configuration of stepping stones."""
+        
+        width: float = MISSING
+        """The width of the stepping stones (in m)."""
+        
+        spacing: float = MISSING
+        """The spacing between stepping stones (in m)."""
+        
+        height: float = MISSING
+        """The height of the stepping stones (in m)."""
+
+        max_tilt_angle: float = 0.2
+        """The maximum tilt angle of stones (in radians). Defaults to 0.2."""
+
+    function = mesh_terrains.mesh_stepping_stones_terrain
+
+    pit_depth: float = -2.0
+
+    border_width: float = 0.5
+
+    # Stone curriculum parameters
+    stone_params_start: StoneCfg = MISSING
+    """The stone curriculum parameters at the start of the curriculum."""
+    
+    stone_params_end: StoneCfg = MISSING
+    """The stone curriculum parameters at the end of the curriculum."""
+
+    # Stone variation parameters
+    height_variation: float = 0.05
+    """The maximum random variation in stone height (in m). Defaults to 0.05."""
+    
+    # Platform parameters
+    platform_width: float = 2.0
+    """The width of the platform at the center of the terrain. Defaults to 2.0."""
+    
+    platform_height: float = -1.0
+    """The height of the platform. Defaults to -1.0.
+    
+    If the value is negative, the height is the same as the stone height.
+    """
+    
+    # Obstacle parameters
+    obstacle_num_range: tuple[int, int] = (3, 8)
+    """The range of number of obstacles to generate. Defaults to (3, 8)."""
+    
+    obstacle_size_range: tuple[float, float] = (0.2, 0.5)
+    """The size range of obstacles (cube, in m). Defaults to (0.2, 0.5)."""
+
+    obstacle_height_scale: float = 1.0
+
+    obstacle_max_tilt_angle: float = 1.0
+
+    # Stone type parameters
+    stone_types: list[str] = ["box", "cylinder"]
+    """The types of stones to generate. Defaults to ["box", "cylinder"].
+    
+    Available options: "box", "cylinder"
+    """
+
+
+@configclass
+class MeshPlatformBarsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for mesh-based platform and bars terrain."""
+
+    function = mesh_terrains.mesh_platform_bars_terrain
+
+    # Platform parameters
+    platform_width: float = 2.0
+    """The width of the platform at the center of the terrain. Defaults to 2.0."""
+    
+    platform_height: float = -1.0
+    """The height of the platform. Defaults to -1.0.
+    
+    If the value is negative, the height is the same as the bar height.
+    """
+    
+    # Pit parameters
+    pit_depth: float = 2.0
+    """The depth of pits (in m). Defaults to 1.5."""
+    
+    # Bar parameters
+    bars_num_range: tuple[int, int] = (5, 15)
+    """The range of number of bars to generate. Defaults to (5, 15)."""
+    
+    bar_width_range: tuple[float, float] = (0.3, 0.6)
+    """The width range of bars (in m). Defaults to (0.1, 0.3)."""
+    
+    bar_length_range: tuple[float, float] = (3.0, 5.0)
+    """The length range of bars (in m). Defaults to (0.5, 1.5)."""
+    
+    bar_height: float = 2.0
+    """The height of bars (in m). Defaults to 0.2."""
+
+    border_width: float = 1.0
+

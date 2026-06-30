@@ -47,6 +47,45 @@ class modify_reward_weight(ManagerTermBase):
         return self._term_cfg.weight
 
 
+class modify_reward_weight_linear(ManagerTermBase):
+    """Curriculum that modifies the reward weight based on a step-wise schedule."""
+
+    def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        # obtain term configuration
+        term_name = cfg.params["term_name"]
+        self._term_cfg = env.reward_manager.get_term_cfg(term_name)
+        
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        term_name: str,
+        beg_step: int,
+        end_step: int,
+        beg_weight: float,
+        end_weight: float,
+    ) -> float:
+        current_step = env.common_step_counter
+        
+        # 如果当前步数小于起始步数，保持初始权重
+        if current_step < beg_step:
+            self._term_cfg.weight = beg_weight
+        # 如果当前步数在起始和结束之间，进行线性插值
+        elif beg_step <= current_step <= end_step:
+            progress = (current_step - beg_step) / (end_step - beg_step)
+            self._term_cfg.weight = beg_weight + progress * (end_weight - beg_weight)
+        # 如果当前步数超过结束步数，达到目标权重
+        else:
+            self._term_cfg.weight = end_weight
+            
+        # 更新环境中的权重配置
+        env.reward_manager.set_term_cfg(term_name, self._term_cfg)
+        
+        return self._term_cfg.weight
+
+
 class modify_env_param(ManagerTermBase):
     """Curriculum term for modifying an environment parameter at runtime.
 

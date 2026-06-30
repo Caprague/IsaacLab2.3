@@ -33,6 +33,18 @@ def time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
     return env.episode_length_buf >= env.max_episode_length
 
 
+def time_out_v2(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Terminate the episode when the episode length exceeds the maximum episode length."""
+    current_time_out = env.episode_length_buf >= env.max_episode_length
+
+    if not hasattr(env, "time_out_buf"):
+        env.time_out_buf = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    else:
+        env.time_out_buf = torch.logical_or(env.time_out_buf, current_time_out)
+
+    return current_time_out
+
+
 def command_resample(env: ManagerBasedRLEnv, command_name: str, num_resamples: int = 1) -> torch.Tensor:
     """Terminate the episode based on the total number of times commands have been re-sampled.
 

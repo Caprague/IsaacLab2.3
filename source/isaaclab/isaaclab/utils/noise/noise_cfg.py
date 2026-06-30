@@ -110,3 +110,40 @@ class NoiseModelWithAdditiveBiasCfg(NoiseModelCfg):
 
     Defaults to True.
     """
+
+
+@configclass
+class NoiseModelWithPeriodicBiasCfg(NoiseModelCfg):
+    """Configuration for an additive gaussian noise with periodically resampled bias model.
+
+    Unlike :class:`NoiseModelWithAdditiveBiasCfg` which resamples bias on every reset,
+    this class resamples the bias at random intervals within a specified time range.
+    """
+
+    class_type: type = noise_model.NoiseModelWithPeriodicBias
+
+    bias_noise_cfg: NoiseCfg = MISSING
+    """The noise configuration for the bias.
+
+    Based on this configuration, the bias is sampled periodically at random time intervals.
+    """
+
+    sample_bias_per_component: bool = False
+    """Whether to sample a separate bias for each data component.
+
+    Defaults to False.
+    """
+
+    bias_resample_interval: tuple[float, float] = (10.0, 20.0)
+    """Time interval range (in seconds) between bias resampling.
+
+    The bias is resampled at random intervals uniformly sampled from this range.
+    Defaults to (10.0, 20.0), meaning the bias resamples every 10-20 seconds.
+    """
+
+    dt: float = 0.02
+    """Time step (in seconds) for updating the periodic bias resampling.
+
+    This is used to track elapsed time since the last bias resampling.
+    Defaults to 0.02 (50 Hz).
+    """

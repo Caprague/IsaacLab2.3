@@ -35,4 +35,7 @@ from .hf_terrains_cfg import (
     HfSteppingStonesTerrainCfg,
     HfTerrainBaseCfg,
     HfWaveTerrainCfg,
+    HfImageBasedTerrainCfg,
+    HfSteppingSlopeStonesTerrainCfg,
+    ImageHeightLayerCfg,
 )

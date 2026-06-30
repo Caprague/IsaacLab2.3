@@ -21,6 +21,52 @@ RAY_CASTER_MARKER_CFG = VisualizationMarkersCfg(
 )
 """Configuration for the ray-caster marker."""
 
+RAY_CASTER_LIDAR_MARKER_CFG = VisualizationMarkersCfg(
+    markers={
+        "hit": sim_utils.SphereCfg(
+            radius=0.01,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+        ),
+    },
+)
+"""Configuration for the ray-caster lidar marker."""
+
+RAY_CASTER_GREEN_MARKER_CFG = VisualizationMarkersCfg(
+    markers={
+        "hit": sim_utils.SphereCfg(
+            radius=0.015,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
+        ),
+    },
+)
+"""Configuration for the ray-caster marker. Green Color."""
+
+RAY_CASTER_BLUE_MARKER_CFG = VisualizationMarkersCfg(
+    markers={
+        "hit": sim_utils.SphereCfg(
+            radius=0.02,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0)),
+        ),
+    },
+)
+"""Configuration for the ray-caster marker. Blue Color."""
+
+RAY_CASTER_ATTENTION_MARKER_CFG = VisualizationMarkersCfg(
+    markers={
+        f"hit_attention_{i:02d}": sim_utils.SphereCfg(
+            radius=0.02,
+            visual_material=sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(
+                    0.0,                              # R: constant 0
+                    i / 100.0,                        # G: 0.0 → 1.0
+                    1.0 - i / 100.0                   # B: 1.0 → 0.0
+                )
+            )
+        )
+        for i in range(101)
+    },
+)
+"""Configuration for the ray-caster attention visualization marker."""
 
 CONTACT_SENSOR_MARKER_CFG = VisualizationMarkersCfg(
     markers={

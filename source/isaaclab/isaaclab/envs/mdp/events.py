@@ -1071,6 +1071,60 @@ def push_by_setting_velocity(
     asset.write_root_velocity_to_sim(vel_w, env_ids=env_ids)
 
 
+def push_when_still_stucked_random(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    velocity_range: dict[str, tuple[float, float]],
+    command_name: str,
+    vel_diff_threshold: float,
+    stucked_counter_cnt: int,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Push the asset by setting the root velocity to a random value within the given ranges.
+
+    This creates an effect similar to pushing the asset with a random impulse that changes the asset's velocity.
+    It samples the root velocity from the given ranges and sets the velocity into the physics simulation.
+
+    The function takes a dictionary of velocity ranges for each axis and rotation. The keys of the dictionary
+    are ``x``, ``y``, ``z``, ``roll``, ``pitch``, and ``yaw``. The values are tuples of the form ``(min, max)``.
+    If the dictionary does not contain a key, the velocity is set to zero for that axis.
+    """
+    if not hasattr(env, "stucked_counter"):
+        env.stucked_counter = torch.zeros(env.num_envs, dtype=torch.int16, device=env.device)
+
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+
+    # command velocities
+    vel_cmd = torch.norm(env.command_manager.get_command(command_name)[env_ids, :2], dim=1)
+    # asset velocities
+    vel_w = asset.data.root_vel_w[env_ids]
+
+    # detect stucked
+    stucked_mask = torch.abs(torch.norm(vel_w[:, :2], dim=1) - vel_cmd) > vel_diff_threshold
+    # 更新卡住计数器
+    env.stucked_counter[env_ids] = torch.where(
+        stucked_mask,
+        env.stucked_counter[env_ids] + 1,
+        0
+    )
+    # extract still stucked
+    still_stucked_mask = env.stucked_counter[env_ids] > stucked_counter_cnt
+
+    # 检查是否真的有环境需要处理
+    if not still_stucked_mask.any():
+        return  # 没有环境卡住，直接返回
+
+    # sample random velocities
+    range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    ranges = torch.tensor(range_list, device=asset.device)
+    random_vel_delta = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], vel_w.shape, device=asset.device)
+    vel_w_to_set = vel_w + still_stucked_mask.unsqueeze(-1) * random_vel_delta
+
+    # set the velocities into the physics simulation
+    asset.write_root_velocity_to_sim(vel_w_to_set, env_ids=env_ids)
+
+
 def reset_root_state_uniform(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
