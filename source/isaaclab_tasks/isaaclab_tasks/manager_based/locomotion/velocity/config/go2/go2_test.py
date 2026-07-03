@@ -109,6 +109,8 @@ class MySceneCfg(InteractiveSceneCfg):
                 merge_prim_meshes=True,
             ),
         ],
+        data_collection=True,
+        data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360",
     )
     # 高度扫描仪
     height_scanner = RayCasterCfg(

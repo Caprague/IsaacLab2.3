@@ -35,12 +35,12 @@ class RayCasterBoxData:
     in the scan pattern per sensor.
     """
     ray_hits_b: torch.Tensor = None
-    """The ray hit positions in the world frame.
+    """The ray hit positions in the base frame.
 
     Shape is (N, B, 3), where N is the number of sensors, B is the number of max rays
     in the scan pattern per sensor.
     """
     ray_hits_mask: torch.Tensor = None
-    """The mask of ray hit positions in the world frame.
+    """The mask of ray hit positions.
         Shape is (N, B, 3)
     """

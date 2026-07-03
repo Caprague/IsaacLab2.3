@@ -581,6 +581,106 @@ def height_scan_3d(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: flo
     return height_3d
 
 
+def mid360_structured_depth_image(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("head_mid360_scanner"),
+    width: int = 180,
+    height: int = 32,
+    min_range_m: float = 0.1,
+    max_range_m: float = 10.0,
+    min_elevation_deg: float = -7.0,
+    max_elevation_deg: float = 52.0,
+    aggregation_method: str = "mean",
+    log_k: float = 10.0,
+) -> torch.Tensor:
+    """
+    Convert Mid360 LiDAR point cloud to structured depth image.
+
+    This function follows the same conversion approach as mid360_to_nvblox_bridge:
+    1. Cartesian coordinates -> Spherical coordinates (range, azimuth, elevation)
+    2. Spherical coordinates -> Grid indices (u, v)
+    3. Clip range to [min_range_m, max_range_m], apply log mapping
+    4. Aggregate multiple points per grid cell (min/mean/max)
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: The sensor configuration.
+        width: Horizontal resolution (default: 180, 2° per pixel).
+        height: Vertical resolution (default: 32).
+        min_range_m: Minimum valid range in meters. Points below this are set to 0.
+        max_range_m: Maximum valid range in meters. Points above this are clipped.
+        min_elevation_deg: Minimum elevation angle in degrees.
+        max_elevation_deg: Maximum elevation angle in degrees.
+        aggregation_method: Aggregation method for multiple points in same cell.
+            Options: "min", "max", "mean". Default: "mean".
+        log_k: Log mapping parameter. When > 0, applies log(1+k*d)/log(1+k*max)
+            to compress distant range and enhance close range distinction.
+            Default: 10.0. Set to 0 to disable log mapping.
+
+    Returns:
+        Structured depth image tensor. Shape: (num_envs, height, width, 1).
+            Invalid pixels are set to 0.0.
+    """
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+
+    points_b = sensor.data.ray_hits_b
+
+    N = env.num_envs
+
+    x, y, z = points_b[..., 0], points_b[..., 1], points_b[..., 2]
+
+    ranges = torch.sqrt(x**2 + y**2 + z**2)
+    azimuths = torch.atan2(y, x)
+    elevations = torch.asin(z / (ranges + 1e-8))
+
+    min_elev_rad = torch.tensor(min_elevation_deg * torch.pi / 180.0, device=env.device)
+    max_elev_rad = torch.tensor(max_elevation_deg * torch.pi / 180.0, device=env.device)
+    azimuth_res_rad = 2.0 * torch.pi / width
+    elevation_res_rad = (max_elev_rad - min_elev_rad) / (height - 1)
+
+    u_idx = ((azimuths + torch.pi) / azimuth_res_rad).long()
+    v_idx = ((elevations - min_elev_rad) / elevation_res_rad).long()
+
+    u_idx = torch.clamp(u_idx, 0, width - 1)
+    v_idx = torch.clamp(v_idx, 0, height - 1)
+
+    ranges = torch.where(ranges > max_range_m, torch.tensor(max_range_m, device=env.device), ranges)
+    ranges = torch.where(ranges < min_range_m, torch.tensor(0.0, device=env.device), ranges)
+    valid_mask = ranges > 0
+
+    if log_k > 0:
+        log_denominator = torch.log(torch.tensor(1 + log_k * max_range_m, device=env.device))
+        ranges = torch.where(
+            valid_mask,
+            torch.log(1 + log_k * ranges) / log_denominator * max_range_m,
+            ranges
+        )
+
+    depth_map = torch.full((N, height * width), float("inf"), device=env.device)
+
+    flat_idx = v_idx * width + u_idx
+
+    if aggregation_method == "min":
+        filtered_ranges = torch.where(valid_mask, ranges, float("inf"))
+        depth_map.scatter_reduce_(1, flat_idx, filtered_ranges, reduce="min", include_self=False)
+    elif aggregation_method == "max":
+        filtered_ranges = torch.where(valid_mask, ranges, -float("inf"))
+        depth_map.scatter_reduce_(1, flat_idx, filtered_ranges, reduce="max", include_self=False)
+    elif aggregation_method == "mean":
+        count_map = torch.zeros((N, height * width), device=env.device)
+        count_map.scatter_add_(1, flat_idx, valid_mask.float())
+        sum_map = torch.zeros((N, height * width), device=env.device)
+        sum_map.scatter_add_(1, flat_idx, ranges * valid_mask.float())
+        depth_map = torch.where(count_map > 0, sum_map / count_map, float("inf"))
+    else:
+        raise ValueError(f"Unknown aggregation method: {aggregation_method}")
+
+    depth_map = depth_map.view(N, height, width).unsqueeze(-1)
+    depth_map = torch.where(depth_map >= float("inf"), torch.tensor(0.0, device=env.device), depth_map)
+
+    return depth_map
+
+
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Incoming spatial wrench on bodies of an articulation in the simulation world frame.
 
