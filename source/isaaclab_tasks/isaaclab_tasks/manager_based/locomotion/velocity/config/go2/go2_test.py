@@ -36,7 +36,7 @@ from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_S2_CFG  # is
 ##
 # Pre-defined configs - Unitree Go2
 ##
-from isaaclab_assets.robots.unitree import UNITREE_GO2_SELF_COLIISIONS_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG  # isort: skip
 
 
 # ============================================================================================================
@@ -50,10 +50,8 @@ class MySceneCfg(InteractiveSceneCfg):
     # 地形
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        # terrain_type="generator",
-        # terrain_generator=SKILL_WALK_PLUS_TERRAINS_S2_CFG,
-        terrain_type="usd",
-        usd_path="/home/gms/Desktop/Temp/tunnel_file/TunnelWorld.usd",
+        terrain_type="generator",
+        terrain_generator=SKILL_WALK_PLUS_TERRAINS_S2_CFG,
         max_init_terrain_level=5,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -71,39 +69,48 @@ class MySceneCfg(InteractiveSceneCfg):
     )
 
     # 机器人
-    robot: ArticulationCfg = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = UNITREE_GO2_MID360_NX_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # 传感器
     # 接触力传感器
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # IMU
     base_imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", offset=ImuCfg.OffsetCfg(pos=(-0.02557, 0.0, 0.04232)), debug_vis=False)
-    # 高度扫描仪
-    # head_mid360_scanner = RayCasterLidarCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base",
-    #     offset=RayCasterLidarCfg.OffsetCfg(pos=(0.28945, 0.0, -0.04682), rot=(0.13132, 0.0, 0.99134, 0.0)),
-    #     max_distance=50.0,
-    #     ray_alignment="base",
-    #     pattern_cfg=patterns.Mid360PatternCfg(csv_file_path="/home/gms/Isaac/IsaacLab2.2/IsaacLab/User/ScanCSV/Mid360/mid360.csv"),
-    #     dynamic_pattern=True,
-    #     debug_vis=False,
-    #     mesh_prim_paths=["/World/ground"],
-    # )
-    gt_scanner = RayCasterBoxCfg(
+    # 主传感雷达
+    head_mid360_scanner = RayCasterLidarCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterBoxCfg.OffsetCfg(pos=(0.28945, 0.0, -0.04682)),
+        offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
+        max_distance=50.0,
+        drift_range=(0.0, 0.01),
         ray_alignment="base",
-        pattern_cfg=patterns.BoxGridPatternCfg(
-            resolution=0.05,
-            size=(3.2, 3.2, 3.2),
-        ),
-        max_distance=3.2,
-        max_iterations=5,
-        epsilon=1e-2,
-        box_vis=False,
+        pattern_cfg=patterns.Mid360PatternCfg(csv_file_path="/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv"),
+        dynamic_pattern=True,
         debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
+        mesh_prim_paths=[
+            "/World/ground",                                # 静态地面
+            RayCasterLidarCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Robot/.*_thigh",
+                track_mesh_transforms=True,                 # 跟踪腿部运动
+                merge_prim_meshes=True,
+            ),
+            RayCasterLidarCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Robot/.*_calf",
+                track_mesh_transforms=True,
+                merge_prim_meshes=True,
+            ),
+            RayCasterLidarCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Robot/.*_foot",
+                track_mesh_transforms=True,
+                merge_prim_meshes=True,
+            ),
+            RayCasterLidarCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Robot/radar",     # 针对雷达保护罩
+                track_mesh_transforms=True,
+                merge_prim_meshes=True,
+            ),
+        ],
     )
+    # 高度扫描仪
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
@@ -111,15 +118,6 @@ class MySceneCfg(InteractiveSceneCfg):
         ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
-    height_scanner_lf = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
     base_height_scanner = RayCasterCfg(
@@ -375,25 +373,11 @@ class ObservationsCfg:
     @configclass
     class MapScansNoised(ObsGroup):
         # 高度扫描
-        height_scan_low_freq = ObsTerm(
-            func=mdp.height_scan_delay,
-            params={
-                "sensor_cfg": SceneEntityCfg("height_scanner_lf"), 
-                "offset": 0.0,
-                "delay_range": (0, 10),  # 0.02 * 10 = 0.2 s
-                "resample_interval_range": (0.5, 10.0),
-                "dt": 0.02,     # 50 hz
-                "downsample_freq_scale": 2, # 50 / 2 = 25 hz
-            },
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner"), "offset": 0.0},
             clip=(-1.5, 1.5),
             scale=2.0,
-            noise=NoiseModelWithPeriodicBiasCfg(
-                noise_cfg=Unoise(operation="add", n_min=-0.05, n_max=0.05),
-                bias_noise_cfg=Unoise(operation="abs", n_min=-0.1, n_max=0.1),
-                sample_bias_per_component=False,
-                bias_resample_interval=(0.5, 10.0),
-                dt=0.02,        # 50 hz
-            )
         )
 
         def __post_init__(self):
@@ -777,18 +761,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
         # 修改传感器更新频率
         # 我们根据最小更新周期（物理更新周期）勾选所有传感器
-        if self.scene.height_scanner is not None:  # 高度扫描仪
-            self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.height_scanner_lf is not None:
-            self.scene.height_scanner_lf.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.contact_forces is not None:  # 接触力传感器
             self.scene.contact_forces.update_period = self.sim.dt  # 200 Hz
         if self.scene.base_imu is not None:  # IMU
             self.scene.base_imu.update_period = self.sim.dt  # 200 Hz
-        # if self.scene.head_mid360_scanner is not None:  # mid360
-        #     self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt # 10 Hz
-        if self.scene.gt_scanner is not None:                               # gt
-            self.scene.gt_scanner.update_period = 20 * self.sim.dt              # 10 Hz
+        if self.scene.head_mid360_scanner is not None:  # mid360
+            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt # 10 Hz
+        if self.scene.height_scanner is not None:  # 高度扫描仪
+            self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.base_height_scanner is not None:  # base 单点高度扫描
             self.scene.base_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.FL_foot_height_scanner is not None:  # FL 足端单点高度扫描
