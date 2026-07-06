@@ -126,10 +126,21 @@ class Mid360PatternCfg(PatternBaseCfg):
     - Zenith/deg: Vertical angle in degrees (37.836-97.2123)
     """
 
-    points_per_scan: int = 20000
-    """Number of points per scan. Defaults to 20000.
+    points_per_second: int = 200000
+    """Total number of points output per second. Defaults to 200000.
 
-    Calculated as: 200,000 points/second / 10Hz = 20,000 points/scan
+    This is the total point rate of the LiDAR sensor (200,000 points/s for Mid-360).
+    """
+
+    update_frequency_hz: float = 10.0
+    """Update frequency in Hz. Defaults to 10.0.
+
+    This determines how often the sensor data is updated. The number of points per scan
+    is automatically calculated as: points_per_second / update_frequency_hz.
+    
+    Common values:
+    - 10.0 Hz: Standard Mid-360 rate (20,000 points/scan)
+    - 50.0 Hz: High-frequency mode (4,000 points/scan)
     """
 
     total_points: int = 800000
@@ -139,6 +150,14 @@ class Mid360PatternCfg(PatternBaseCfg):
     """
     
     _scan_index: int = 0
+
+    @property
+    def points_per_scan(self) -> int:
+        """Number of points per scan, automatically calculated.
+        
+        Calculated as: points_per_second / update_frequency_hz
+        """
+        return int(self.points_per_second / self.update_frequency_hz)
 
 
 @configclass

@@ -83,7 +83,11 @@ class MySceneCfg(InteractiveSceneCfg):
         max_distance=50.0,
         drift_range=(0.0, 0.01),
         ray_alignment="base",
-        pattern_cfg=patterns.Mid360PatternCfg(csv_file_path="/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv"),
+        yaw_inv=True,
+        pattern_cfg=patterns.Mid360PatternCfg(
+            csv_file_path="/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv",
+            update_frequency_hz=10.0,
+        ),
         dynamic_pattern=True,
         debug_vis=True,
         mesh_prim_paths=[
@@ -109,8 +113,10 @@ class MySceneCfg(InteractiveSceneCfg):
                 merge_prim_meshes=True,
             ),
         ],
-        data_collection=True,
-        data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360",
+        data_collection=False,
+        data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
+        pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
+        pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
     )
     # 高度扫描仪
     height_scanner = RayCasterCfg(
@@ -768,7 +774,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         if self.scene.base_imu is not None:  # IMU
             self.scene.base_imu.update_period = self.sim.dt  # 200 Hz
         if self.scene.head_mid360_scanner is not None:  # mid360
-            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt # 10 Hz
+            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
         if self.scene.height_scanner is not None:  # 高度扫描仪
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.base_height_scanner is not None:  # base 单点高度扫描

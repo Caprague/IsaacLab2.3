@@ -16,6 +16,7 @@ class RayCasterBoxData:
 
     Shape is (N, 3), where N is the number of sensors.
     """
+
     quat_w: torch.Tensor = None
     """Orientation of the sensor origin in quaternion (w, x, y, z) in world frame.
 
@@ -43,4 +44,10 @@ class RayCasterBoxData:
     ray_hits_mask: torch.Tensor = None
     """The mask of ray hit positions.
         Shape is (N, B, 3)
+    """
+    
+    frame_id: torch.Tensor = None
+    """Frame number when the measurement took place.
+
+    Shape is (N,), where N is the number of sensors.
     """

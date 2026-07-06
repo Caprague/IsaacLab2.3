@@ -681,6 +681,47 @@ def mid360_structured_depth_image(
     return depth_map
 
 
+def depth_image_age(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("head_mid360_scanner"),
+    max_age: int = 5,
+) -> torch.Tensor:
+    """
+    返回深度图的存留帧数标记，用于多速率同步场景。
+
+    当深度图更新频率低于 policy 频率时（如深度图10Hz，policy 50Hz），
+    此函数返回当前深度图已被使用的帧数，归一化到 [0, 1]。
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: The sensor configuration for the depth image source.
+        max_age: Maximum expected age in frames before depth image updates.
+            Default: 5 (for 50Hz policy with 10Hz depth image).
+
+    Returns:
+        Tensor of shape (num_envs, 1) with values in [0, 1].
+            0.0: 深度图刚更新
+            1.0: 深度图即将过期
+    """
+    sensor = env.scene.sensors[sensor_cfg.name]
+    
+    state_key = f"_depth_age_{sensor_cfg.name}"
+    if not hasattr(env, state_key):
+        setattr(env, state_key, {
+            'counter': torch.zeros(env.num_envs, device=env.device),
+            'last_frame': torch.full((env.num_envs,), -1, device=env.device),
+        })
+    
+    state = getattr(env, state_key)
+    current_frame = sensor.data.frame_id
+    
+    mask_new = current_frame != state['last_frame']
+    state['counter'] = torch.where(mask_new, torch.tensor(0, device=env.device), state['counter'] + 1)
+    state['last_frame'] = current_frame
+    
+    return (state['counter'] / max_age).clamp(0.0, 1.0).view(-1, 1)
+
+
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Incoming spatial wrench on bodies of an articulation in the simulation world frame.
 

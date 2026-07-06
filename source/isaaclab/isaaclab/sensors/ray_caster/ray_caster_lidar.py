@@ -94,12 +94,22 @@ class RayCasterLidar(MultiMeshRayCaster):
         # return the data
         return self._data
 
+    @property
+    def frame(self) -> torch.Tensor:
+        """Frame number when the measurement took place."""
+        return self._frame
+
     """
     Operations.
     """
 
     def reset(self, env_ids: Sequence[int] | None = None):
         super().reset(env_ids)
+        # resolve None
+        if env_ids is None:
+            env_ids = slice(None)
+        # Reset the frame count
+        self._frame[env_ids] = 0
         # data collection mode
         if self.cfg.data_collection:
             self.pc_data_saver.reset_input_counter(env_ids)
@@ -112,6 +122,9 @@ class RayCasterLidar(MultiMeshRayCaster):
     def _initialize_impl(self):
         super()._initialize_impl()
 
+        # initialize frame counter
+        self._frame = torch.zeros(self._num_envs, device=self.device)
+        
         # initialize LiDAR-specific data buffers
         self._data.sensor_pos_w = torch.zeros(self._num_envs, 3, device=self.device)
         self._data.ray_hits_b = torch.zeros(self._num_envs, self.num_rays, 3, device=self.device)
@@ -135,9 +148,12 @@ class RayCasterLidar(MultiMeshRayCaster):
         self._data.sensor_pos_w = torch.zeros(self._num_envs, 3, device=self.device)
         self._data.ray_hits_b = torch.zeros(self._num_envs, self.num_rays, 3, device=self.device)
         self._data.ray_hits_mask = torch.zeros(self._num_envs, self.num_rays, dtype=torch.bool, device=self.device)
+        self._data.frame_id = torch.zeros(self._num_envs, device=self.device)
 
     def _update_buffers_impl(self, env_ids: Sequence[int]):
         """Fills the buffers of the sensor data."""
+        # increment frame count
+        self._frame[env_ids] += 1
         # Update ray pattern if dynamic pattern is enabled
         if self.cfg.dynamic_pattern:
             new_ray_starts, new_ray_directions = self.cfg.pattern_cfg.func(self.cfg.pattern_cfg, self._device)
@@ -220,6 +236,9 @@ class RayCasterLidar(MultiMeshRayCaster):
             self.pose_data_saver.save_data(
                 env_ids, self._data.sensor_pos_w[env_ids], self._data.quat_w[env_ids]
             )
+        
+        # update frame_id in data container
+        self._data.frame_id = self._frame
 
     def _debug_vis_callback(self, event):
         viz_points = self._data.ray_hits_w[self._data.ray_hits_mask].view(-1, 3)
