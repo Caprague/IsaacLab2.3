@@ -1,4 +1,24 @@
 # 用户变更日志
+<!-- 按时间倒序排列，最新修改在最顶部 -->
+
+## v0.1.1 (2026-07-06)
+
+### 新增功能
+
+- **深度图时间标记**：新增 `depth_image_age` 观测函数，用于标记转换后深度图的存留帧数，支持 50Hz policy 兼容 10Hz 深度图输入
+- **RayCasterLidar frame_id 计数**：参考 `RayCasterCamera` 实现帧号自动递增，支持传感器数据更新检测
+- **Mid360PatternCfg 参数重构**：将 `points_per_scan` 改为 property 自动计算，新增 `points_per_second`（默认 200000）和 `update_frequency_hz`（默认 10.0）参数
+
+### 修改文件
+
+- `source/isaaclab/isaaclab/envs/mdp/observations.py` - 新增 `depth_image_age` 函数，`mid360_structured_depth_image` 添加距离截断和对数映射参数
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_lidar.py` - 添加 `_frame` 计数器、`frame` 属性、`reset` 重置逻辑
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_box_data.py` - 添加 `frame_id` 字段
+- `source/isaaclab/isaaclab/sensors/ray_caster/patterns/patterns_cfg.py` - `Mid360PatternCfg` 参数重构，支持频率配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_test.py` - 更新雷达配置
+- `docs/usr_todo_list.md` - 添加深度图频率方案分析，标记方案一（50Hz）为已验证不可行
+
+---
 
 ## v0.1.1 (2026-07-03)
 
