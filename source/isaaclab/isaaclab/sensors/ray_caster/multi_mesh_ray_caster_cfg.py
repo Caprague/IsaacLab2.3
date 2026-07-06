@@ -62,6 +62,9 @@ class MultiMeshRayCasterCfg(RayCasterCfg):
     update_mesh_ids: bool = False
     """Whether to update the mesh ids of the ray hits in the :attr:`data` container."""
 
+    return_distance: bool = False
+    """Whether to return the distance of the ray hits. Defaults to False."""
+
     reference_meshes: bool = True
     """Whether to reference duplicated meshes instead of loading each one separately into memory.
     Defaults to True.

@@ -1,6 +1,43 @@
 # 用户变更日志
 <!-- 按时间倒序排列，最新修改在最顶部 -->
 
+## v0.1.2 (2026-07-07)
+
+### 新增功能
+
+- **雷达噪声系统**：实现完整的雷达测量噪声模型
+  - 距离噪声：基于距离的高斯噪声（σ = 0.005 + 0.0015×d），在接收端施加
+  - 角度噪声：统一角度噪声参数（0.15°），在发射端施加，更符合物理现实
+- **深度图dropout**：`mid360_structured_depth_image` 添加 `dropout_prob` 参数（默认5%），随机置零像素模拟信号丢失
+- **性能优化**：从 Warp kernel 直接获取 `ray_distance`，避免二次计算 `torch.norm`
+
+### Bug修复
+
+- **静态模式角度噪声累积**：保存原始射线方向副本，每帧从原始方向加噪
+- **动态模式噪声共享**：先 repeat 到所有环境再独立加噪，确保每个环境噪声独立
+- **RayCasterBoxData 缺少 ray_distance**：添加字段并正确初始化
+
+### 修改文件
+
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_lidar.py` - 噪声注入逻辑、性能优化、bug修复
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_lidar_cfg.py` - 新增噪声配置类
+- `source/isaaclab/isaaclab/sensors/ray_caster/multi_mesh_ray_caster.py` - 添加 `return_distance` 支持
+- `source/isaaclab/isaaclab/sensors/ray_caster/multi_mesh_ray_caster_cfg.py` - 添加 `return_distance` 配置项
+- `source/isaaclab/isaaclab/sensors/ray_caster/multi_mesh_ray_caster_data.py` - 添加 `ray_distance` 字段
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_box_data.py` - 添加 `ray_distance` 字段
+- `source/isaaclab/isaaclab/envs/mdp/observations.py` - 添加 `dropout_prob` 参数
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_cfg.py` - 启用噪声配置
+- `docs/usr_todo_list.md` - 添加循环填充方案
+
+### 新增文件
+
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_cfg.py` - 10Hz深度图配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_gru_cfg.py` - GRU时序版本配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_ppo_cfg_walk_mid360_depth_10hz.py` - PPO代理配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_ppo_cfg_walk_mid360_depth_10hz_gru.py` - GRU代理配置
+
+---
+
 ## v0.1.1 (2026-07-06)
 
 ### 新增功能

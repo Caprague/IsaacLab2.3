@@ -18,11 +18,11 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, ImuCfg, patterns, RayCasterLidarCfg, RayCasterBoxCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, ImuCfg, patterns, RayCasterLidarCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
-from isaaclab.utils.noise import NoiseModelWithAdditiveBiasCfg, NoiseModelWithPeriodicBiasCfg
+from isaaclab.utils.noise import NoiseModelWithAdditiveBiasCfg, GaussianNoiseCfg
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
@@ -76,6 +76,16 @@ class MySceneCfg(InteractiveSceneCfg):
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # IMU
     base_imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", offset=ImuCfg.OffsetCfg(pos=(-0.02557, 0.0, 0.04232)), debug_vis=False)
+    # 高度扫描仪
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
     # 主传感雷达
     head_mid360_scanner = RayCasterLidarCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
@@ -120,33 +130,25 @@ class MySceneCfg(InteractiveSceneCfg):
                 merge_prim_meshes=True,
             ),
         ],
-        data_collection=True,
+        data_collection=False,
         data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
-        pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=2),
-        pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=2),
+        pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
+        pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
     )
-    # 高度扫描仪
-    height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
+    # 基座高度检测器
     base_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
+    # 足端高度检测器
     FL_foot_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
@@ -155,7 +157,7 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     FR_foot_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
@@ -164,7 +166,7 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     RL_foot_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
@@ -173,10 +175,47 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     RR_foot_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 2.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
+    # 足端边缘检测器
+    FL_foot_edge_detecter = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
+    FR_foot_edge_detecter = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
+    RL_foot_edge_detecter = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
+    RR_foot_edge_detecter = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
@@ -199,31 +238,31 @@ class MySceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
-    # # stage1 enable ===================================================================================================
-    # base_velocity = mdp.UniformVelocityCommandCfgUser(
-    #     asset_name="robot",
-    #     resampling_time_range=(10.0, 20.0),
-    #     rel_standing_envs=0.05,
-    #     rel_vel_world_envs=1.0,                 # must set to 1.0
-    #     heading_control_stiffness=0.5,
-    #     debug_vis=True,
-    #     ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-    #         lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(-0.0, 0.0)
-    #     ),
-    # )
-
-    # stage2 enable ===================================================================================================
+    # stage1 enable ===================================================================================================
     base_velocity = mdp.UniformVelocityCommandCfgUser(
         asset_name="robot",
         resampling_time_range=(10.0, 20.0),
         rel_standing_envs=0.05,
-        rel_vel_world_envs=1.00,
+        rel_vel_world_envs=1.0,                 # must set to 1.0
         heading_control_stiffness=0.5,
-        debug_vis=False,
+        debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(0.0, 0.0), lin_vel_y=(0.8, 1.0), ang_vel_z=(-math.pi/2.0, math.pi/2.0), heading=(0.0, 0.0)
+            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(-0.0, 0.0)
         ),
     )
+
+    # # stage2 enable ===================================================================================================
+    # base_velocity = mdp.UniformVelocityCommandCfgUser(
+    #     asset_name="robot",
+    #     resampling_time_range=(10.0, 20.0),
+    #     rel_standing_envs=0.05,
+    #     rel_vel_world_envs=0.75,              # 0.75 : 0.25
+    #     heading_control_stiffness=0.5,
+    #     debug_vis=True,
+    #     ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
+    #         lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+    #     ),
+    # )
 
 
 # ============================================================================================================
@@ -385,23 +424,34 @@ class ObservationsCfg:
 
     proprioception_noised: ProprioceptionNoised = ProprioceptionNoised()
 
-    @configclass
-    class MapScansNoised(ObsGroup):
-        # 高度扫描
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner"), "offset": 0.0},
-            clip=(-1.5, 1.5),
-            scale=2.0,
-        )
 
+    @configclass
+    class Mid360Depth(ObsGroup):
+        # Mid360转换深度图
+        depth_scan = ObsTerm(
+            func=mdp.mid360_structured_depth_image,
+            params={
+                "sensor_cfg": SceneEntityCfg("head_mid360_scanner"),
+                "width": 180,
+                "height": 32,
+                "min_range_m": 0.1,
+                "max_range_m": 2.5,
+                "min_elevation_deg": -7.0,
+                "max_elevation_deg": 52.0,
+                "aggregation_method": "mean",
+                "log_k": 10.0,
+                "dropout_prob": 0.1,
+            },
+            scale=3.0,
+            clip=(0.0, 1.0),
+        )
+        
         def __post_init__(self):
             self.enable_corruption = True   # Noised
             self.concatenate_terms = True
             self.history_length = 1
 
-    mapScans_noised: MapScansNoised = MapScansNoised()
-
+    mid360_depth: Mid360Depth = Mid360Depth()
 
 # ============================================================================================================
 # 定义事件 CFG
@@ -428,8 +478,8 @@ class EventCfg:
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-1.0, 3.0),
+            "asset_cfg": SceneEntityCfg("robot", body_names="back_loader"),
+            "mass_distribution_params": (-1.0, 1.5),
             "operation": "add",
         },
     )
@@ -437,11 +487,11 @@ class EventCfg:
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="back_loader"),
             "com_range": {
-                "x": (-0.05, 0.05),
-                "y": (-0.03, 0.03),
-                "z": (0.00, 0.12),
+                "x": (-0.015, 0.03),
+                "y": (-0.015, 0.015),
+                "z": (0.00, 0.04),
             },
         },
     )
@@ -527,25 +577,25 @@ class EventCfg:
         },
     )
 
-    # # interval
-    # push_jump = EventTerm(                              # teacher - stage1 only
-    #     func=mdp.push_when_still_stucked_random,
-    #     mode="interval",
-    #     interval_range_s=(1.0, 2.0),
-    #     params={
-    #         "command_name": "base_velocity",
-    #         "vel_diff_threshold": 0.3,
-    #         "stucked_counter_cnt": 3,
-    #         "velocity_range": {
-    #             "x": (0.75, 1.5), 
-    #             "y": (0.0, 0.0), 
-    #             "z": (0.75, 1.5),
-    #             "roll": (0.0, 0.0), 
-    #             "pitch": (0.0, 0.0), 
-    #             "yaw":(0.0, 0.0), 
-    #         }
-    #     },
-    # )
+    # interval
+    push_jump = EventTerm(                              # teacher - stage1 only
+        func=mdp.push_when_still_stucked_random,
+        mode="interval",
+        interval_range_s=(1.0, 2.0),
+        params={
+            "command_name": "base_velocity",
+            "vel_diff_threshold": 0.3,
+            "stucked_counter_cnt": 3,
+            "velocity_range": {
+                "x": (0.75, 1.5), 
+                "y": (0.0, 0.0), 
+                "z": (0.75, 1.5),
+                "roll": (0.0, 0.0), 
+                "pitch": (0.0, 0.0), 
+                "yaw":(0.0, 0.0), 
+            }
+        },
+    )
 
 
 # ============================================================================================================
@@ -576,14 +626,14 @@ class RewardsCfg:
     # z 轴线速度惩罚 [姿态]
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     # xy 轴角速度惩罚 [姿态]
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.1)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.2)
     # 姿态不水平惩罚 [姿态]
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
         weight=-10.0,
-        params={"target_height": 0.32, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
+        params={"target_height": 0.29, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
     default_stand_pos = RewTerm(
@@ -600,13 +650,13 @@ class RewardsCfg:
     # 基座速度突变惩罚 [平滑]
     base_acc_l2 = RewTerm(
         func=mdp.base_acc_l2,
-        weight=-3.0e-6,
+        weight=-5.0e-6,
         params={"sensor_cfg": SceneEntityCfg("base_imu")},
     )
     # 动作频率惩罚 [平滑]
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_limit, weight=-0.01)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_limit, weight=-0.0125)
     # 关节软限制 [姿态]
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.2)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.25)
     # 前/后向运动时，对hip关节的软限制 [姿态]
     hip_pos_fb_limits = RewTerm(
         func=mdp.hip_joint_pos_fb_limits,
@@ -666,7 +716,7 @@ class RewardsCfg:
     # feet 垂直面碰撞惩罚
     feet_stumble = RewTerm(
         func=mdp.feet_stumble,
-        weight=-0.5,
+        weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     # feet 同侧足端安全距离惩罚 [姿态]
@@ -684,14 +734,29 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.08,
+        weight=-0.05,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
     )
+    # 踏足边缘惩罚
+    foot_edge = RewTerm(
+        func=mdp.foot_edge_contact,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), 
+            "contact_threshold": 5.0,
+            "FL_foot_edge_detecter": SceneEntityCfg("FL_foot_edge_detecter"),
+            "FR_foot_edge_detecter": SceneEntityCfg("FR_foot_edge_detecter"),
+            "RL_foot_edge_detecter": SceneEntityCfg("RL_foot_edge_detecter"),
+            "RR_foot_edge_detecter": SceneEntityCfg("RR_foot_edge_detecter"),
+            "height_threshold": 0.12,
+            "cnt_threshold": 1,
+        },
+    )
     # 接触惩罚 [姿态]
-    undesired_contacts_head = RewTerm(
+    undesired_contacts_radar = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-5.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
+        weight=-10.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="radar"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
     undesired_contacts_thigh = RewTerm(
@@ -759,7 +824,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     # 事件类实例化
     events: EventCfg = EventCfg()
     # 课程类实例化
-    # curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
@@ -775,15 +840,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**16
 
         # 修改传感器更新频率
-        # 我们根据最小更新周期（物理更新周期）勾选所有传感器
-        if self.scene.contact_forces is not None:  # 接触力传感器
-            self.scene.contact_forces.update_period = self.sim.dt  # 200 Hz
-        if self.scene.base_imu is not None:  # IMU
-            self.scene.base_imu.update_period = self.sim.dt  # 200 Hz
-        if self.scene.head_mid360_scanner is not None:  # mid360
-            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
+        if self.scene.contact_forces is not None:                   # 接触力传感器
+            self.scene.contact_forces.update_period = self.sim.dt   # 200 Hz
+        if self.scene.base_imu is not None:                         # IMU
+            self.scene.base_imu.update_period = self.sim.dt         # 200 Hz
         if self.scene.height_scanner is not None:  # 高度扫描仪
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.head_mid360_scanner is not None: # 头部mid360
+            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
         if self.scene.base_height_scanner is not None:  # base 单点高度扫描
             self.scene.base_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.FL_foot_height_scanner is not None:  # FL 足端单点高度扫描
@@ -794,6 +858,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.RL_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.RR_foot_height_scanner is not None:  # RR 足端单点高度扫描
             self.scene.RR_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.FL_foot_edge_detecter is not None:  # FL 足端边缘检测
+            self.scene.FL_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.FR_foot_edge_detecter is not None:  # FR 足端边缘检测
+            self.scene.FR_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.RL_foot_edge_detecter is not None:  # RL 足端边缘检测
+            self.scene.RL_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.RR_foot_edge_detecter is not None:  # RR 足端边缘检测
+            self.scene.RR_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
 
         # 检查地形等级&课程学习是否设定启用
         if getattr(self.curriculum, "terrain_levels", None) is not None:
@@ -820,17 +892,27 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
         self.scene.env_spacing = 2.5
         self.episode_length_s = 30.0
 
-        # # 限定速度指令
-        # self.commands.base_velocity.rel_vel_world_envs = 1.0
-        # self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
-        self.commands.base_velocity.ranges.lin_vel_y = (1.25, 1.25)
+        # 速度指令调整
+        self.commands.base_velocity.rel_vel_world_envs = 1.0
+        self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
 
-        # Play 播放时，机器人生成位置随机化，不跟随地形等级
+        # # Play 播放时，机器人生成位置随机化，不跟随地形等级
         # self.scene.terrain.max_init_terrain_level = None
         # self.scene.terrain.terrain_generator.curriculum = False
 
-        # 移除随机推力事件
-        self.events.base_external_force_torque = None
+        # 可视化调整
+        self.scene.base_height_scanner.debug_vis = False
+        self.scene.FL_foot_height_scanner.debug_vis = False
+        self.scene.FR_foot_height_scanner.debug_vis = False
+        self.scene.RL_foot_height_scanner.debug_vis = False
+        self.scene.RR_foot_height_scanner.debug_vis = False
+        self.scene.FL_foot_edge_detecter.debug_vis = False
+        self.scene.FR_foot_edge_detecter.debug_vis = False
+        self.scene.RL_foot_edge_detecter.debug_vis = False
+        self.scene.RR_foot_edge_detecter.debug_vis = False
+
+        # 事件设定调整
         self.events.push_robot = None
-        self.events.add_base_mass.mass_distribution_params = (1.0, 3.0)
+        self.events.add_base_mass.mass_distribution_params = (0.0, 3.0)
 

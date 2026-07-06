@@ -48,3 +48,38 @@
 - 为后续升级到方案二做准备
 - 即使将来切换到 10Hz，depth_age 逻辑已经就绪
 
+---
+
+## 深度图边界连续性处理方案
+
+### 问题描述
+- Mid360 雷达水平视野为 360°，转换为深度图后（水平 180 列），列 0（0°）和列 179（360°）在物理上是相邻的
+- 标准 CNN 卷积使用零填充或镜像填充，无法处理这种循环连续性，导致边界处特征提取不完整
+
+### 方案：循环填充（Circular Padding）
+- **原理**：在每次卷积前，将右侧边缘的一部分复制到左侧，左侧边缘的一部分复制到右侧
+- **实现方式**：
+  ```python
+  def circular_pad(x: torch.Tensor, pad_size: int) -> torch.Tensor:
+      left_pad = x[..., -pad_size:]   # 取右侧 pad_size 列
+      right_pad = x[..., :pad_size]   # 取左侧 pad_size 列
+      return torch.cat([left_pad, x, right_pad], dim=-1)
+  ```
+- **应用位置**：在每个卷积层前调用，pad_size = kernel_size // 2
+- **代码架构建议**：
+  ```python
+  class DepthImageEncoder(nn.Module):
+      def forward(self, x: torch.Tensor) -> torch.Tensor:
+          for layer in self.conv_layers:
+              if isinstance(layer, nn.Conv2d):
+                  pad = layer.kernel_size[0] // 2
+                  x = torch.cat([x[..., -pad:], x, x[..., :pad]], dim=-1)
+              x = layer(x)
+          return x.flatten(1)
+  ```
+
+### 方案评估
+- **优点**：实现简单，计算开销小（仅复制边缘像素），与现有网络结构兼容性好
+- **缺点**：需要在每个卷积层前手动添加填充逻辑
+- **边界影响范围**：3×3 卷积核仅影响 ±1 列，对于 180 列宽度影响约 0.56%，影响很小
+

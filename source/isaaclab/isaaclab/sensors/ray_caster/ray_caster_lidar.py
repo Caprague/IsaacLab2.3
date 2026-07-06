@@ -119,6 +119,29 @@ class RayCasterLidar(MultiMeshRayCaster):
     Implementation.
     """
 
+    def _apply_angle_noise_to_directions(self, directions: torch.Tensor) -> torch.Tensor:
+        """对射线方向向量添加角度噪声。
+
+        Args:
+            directions: 射线方向向量，形状 (R, 3) 或 (N, R, 3)
+
+        Returns:
+            添加噪声后的归一化射线方向向量
+        """
+        x, y, z = directions[..., 0], directions[..., 1], directions[..., 2]
+        theta = torch.atan2(y, x)
+        phi = torch.acos(torch.clamp(z, min=-1.0, max=1.0))
+
+        std_rad = torch.deg2rad(torch.tensor(self.cfg.noise_cfg.angle_noise_std_deg, device=self._device))
+        theta_noisy = theta + torch.randn_like(theta) * std_rad
+        phi_noisy = phi + torch.randn_like(phi) * std_rad
+
+        x_noisy = torch.cos(theta_noisy) * torch.sin(phi_noisy)
+        y_noisy = torch.sin(theta_noisy) * torch.sin(phi_noisy)
+        z_noisy = torch.cos(phi_noisy)
+
+        return torch.stack([x_noisy, y_noisy, z_noisy], dim=-1)
+
     def _initialize_impl(self):
         super()._initialize_impl()
 
@@ -133,6 +156,8 @@ class RayCasterLidar(MultiMeshRayCaster):
         if self.cfg.data_collection:
             self.pc_data_saver.set_num_envs(self._view.count)
             self.pose_data_saver.set_num_envs(self._view.count)
+
+        self._original_ray_directions = None
 
     def _initialize_rays_impl(self):
         super()._initialize_rays_impl()
@@ -149,6 +174,10 @@ class RayCasterLidar(MultiMeshRayCaster):
         self._data.ray_hits_b = torch.zeros(self._num_envs, self.num_rays, 3, device=self.device)
         self._data.ray_hits_mask = torch.zeros(self._num_envs, self.num_rays, dtype=torch.bool, device=self.device)
         self._data.frame_id = torch.zeros(self._num_envs, device=self.device)
+        if self.cfg.return_distance:
+            self._data.ray_distance = torch.zeros(self._num_envs, self.num_rays, device=self.device)
+
+        self._original_ray_directions = self.ray_directions.clone()
 
     def _update_buffers_impl(self, env_ids: Sequence[int]):
         """Fills the buffers of the sensor data."""
@@ -161,10 +190,21 @@ class RayCasterLidar(MultiMeshRayCaster):
             offset_quat = torch.tensor(list(self.cfg.offset.rot), device=self._device)
             new_ray_directions = quat_apply(offset_quat.repeat(len(new_ray_directions), 1), new_ray_directions)
             new_ray_starts += offset_pos
+
             self.ray_starts[:, : len(new_ray_starts)] = new_ray_starts.unsqueeze(0).repeat(self._num_envs, 1, 1)
             self.ray_directions[:, : len(new_ray_directions)] = new_ray_directions.unsqueeze(0).repeat(
                 self._num_envs, 1, 1
             )
+
+            if self.cfg.noise_cfg.enable_angle_noise:
+                self.ray_directions[env_ids, : len(new_ray_directions)] = self._apply_angle_noise_to_directions(
+                    self.ray_directions[env_ids, : len(new_ray_directions)]
+                )
+        else:
+            if self.cfg.noise_cfg.enable_angle_noise:
+                self.ray_directions[env_ids] = self._apply_angle_noise_to_directions(
+                    self._original_ray_directions[env_ids]
+                )
 
         # --- call parent to do multi-mesh ray casting ---
         super()._update_buffers_impl(env_ids)
@@ -178,7 +218,25 @@ class RayCasterLidar(MultiMeshRayCaster):
         offset_pos_w = quat_apply(current_quat_w, offset_pos.unsqueeze(0).repeat(len(env_ids), 1))  # (N, 3)
 
         # sensor world position (base + offset)
-        self._data.sensor_pos_w[env_ids] = current_pos_w + offset_pos_w  # (N, 3)
+        sensor_pos_w = current_pos_w + offset_pos_w  # (N, 3)
+        self._data.sensor_pos_w[env_ids] = sensor_pos_w
+
+        # --- apply measurement noise ---
+        noise_cfg = self.cfg.noise_cfg
+        if noise_cfg.enable_range_noise:
+            ray_hits_w = self._data.ray_hits_w[env_ids]  # (N, R, 3)
+            distances = self._data.ray_distance[env_ids]  # (N, R) - use pre-computed distance
+            valid_mask = ~torch.isinf(distances)  # (N, R)
+
+            noise_std = noise_cfg.range_noise_std_base + noise_cfg.range_noise_std_factor * distances
+            noise = torch.randn_like(distances) * noise_std
+            noisy_distances = distances + noise
+            noisy_distances = torch.max(noisy_distances, torch.zeros_like(noisy_distances))
+            directions = (ray_hits_w - sensor_pos_w.unsqueeze(1)) / distances.unsqueeze(-1)
+            noisy_hits = sensor_pos_w.unsqueeze(1) + directions * noisy_distances.unsqueeze(-1)
+            ray_hits_w = torch.where(valid_mask.unsqueeze(-1), noisy_hits, ray_hits_w)
+
+            self._data.ray_hits_w[env_ids] = ray_hits_w
         # sensor world orientation (base rotation * offset rotation)
         sensor_quat_w = math_utils.quat_mul(
             current_quat_w, offset_quat.unsqueeze(0).repeat(len(env_ids), 1)
@@ -201,6 +259,11 @@ class RayCasterLidar(MultiMeshRayCaster):
         elif self.cfg.ray_alignment == "base":
             local_hits = self._data.ray_hits_w[env_ids] - self._data.sensor_pos_w[env_ids].unsqueeze(1)
             sensor_quat_inv = math_utils.quat_inv(sensor_quat_w)  # (N, 4)
+            if self.cfg.yaw_inv:
+                sensor_quat_inv = math_utils.quat_mul(
+                    torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float32, device=local_hits.device).repeat(len(env_ids), 1), 
+                    sensor_quat_inv,
+                )  # (N, 4)
             local_hits = quat_apply(
                 sensor_quat_inv.repeat(1, self.num_rays).view(-1, 4),
                 local_hits.view(-1, 3),

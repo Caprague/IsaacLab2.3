@@ -347,6 +347,10 @@ class MultiMeshRayCaster(RayCaster):
             self._data.ray_mesh_ids = torch.zeros(
                 self._num_envs, self.num_rays, 1, device=self.device, dtype=torch.int16
             )
+        if self.cfg.return_distance:
+            self._data.ray_distance = torch.zeros(
+                self._num_envs, self.num_rays, device=self.device, dtype=torch.float32
+            )
 
     def _update_buffers_impl(self, env_ids: Sequence[int]):
         """Fills the buffers of the sensor data.
@@ -384,18 +388,22 @@ class MultiMeshRayCaster(RayCaster):
             self._mesh_orientations_w[:, mesh_idx : mesh_idx + count] = ori_w
             mesh_idx += count
 
-        self._data.ray_hits_w[env_ids], _, _, _, mesh_ids = raycast_dynamic_meshes(
+        self._data.ray_hits_w[env_ids], ray_distance, _, _, mesh_ids = raycast_dynamic_meshes(
             self._ray_starts_w[env_ids],
             self._ray_directions_w[env_ids],
             mesh_ids_wp=self._mesh_ids_wp,  # list with shape num_envs x num_meshes_per_env
             max_dist=self.cfg.max_distance,
             mesh_positions_w=self._mesh_positions_w[env_ids],
             mesh_orientations_w=self._mesh_orientations_w[env_ids],
+            return_distance=self.cfg.return_distance,
             return_mesh_id=self.cfg.update_mesh_ids,
         )
 
         if self.cfg.update_mesh_ids:
             self._data.ray_mesh_ids[env_ids] = mesh_ids
+
+        if self.cfg.return_distance:
+            self._data.ray_distance[env_ids] = ray_distance
 
     def __del__(self):
         super().__del__()

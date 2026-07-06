@@ -31,8 +31,30 @@ class RayCasterLidarCfg(MultiMeshRayCasterCfg):
         T_max: int = 2
         """每个序列的最大时间步数。默认为 2。"""
 
+    @configclass
+    class NoiseCfg:
+        """雷达测量噪声配置。"""
+
+        enable_range_noise: bool = False
+        """是否启用距离测量噪声。默认为 False。"""
+
+        range_noise_std_base: float = 0.005
+        """距离噪声基础标准差（米），近距离时的噪声。默认为 0.005。"""
+
+        range_noise_std_factor: float = 0.0015
+        """距离噪声距离相关系数，噪声随距离线性增长。默认为 0.0015。"""
+
+        enable_angle_noise: bool = False
+        """是否启用角度测量噪声。默认为 False。"""
+
+        angle_noise_std_deg: float = 0.15
+        """角度噪声标准差（度），同时作用于水平和垂直角度。默认为 0.15。"""
+
     class_type: type = RayCasterLidar
     """对应的传感器类类型。"""
+
+    return_distance: bool = True
+    """是否返回射线击中距离。默认为 True，用于噪声计算。"""
 
     visualizer_cfg: VisualizationMarkersCfg = RAY_CASTER_LIDAR_MARKER_CFG.replace(prim_path="/Visuals/RayCaster")
     """可视化标记的配置对象。默认为 RAY_CASTER_LIDAR_MARKER_CFG。
@@ -78,3 +100,6 @@ class RayCasterLidarCfg(MultiMeshRayCasterCfg):
 
     仅在 ``ray_alignment`` 为 ``"yaw"`` 时生效。
     """
+
+    noise_cfg: NoiseCfg = NoiseCfg()
+    """雷达测量噪声配置。默认为禁用所有噪声。"""

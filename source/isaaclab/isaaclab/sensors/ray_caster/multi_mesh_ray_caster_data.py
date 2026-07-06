@@ -20,3 +20,10 @@ class MultiMeshRayCasterData(RayCasterData):
     Shape is (N, B, 1), where N is the number of sensors, B is the number of rays
     in the scan pattern per sensor.
     """
+
+    ray_distance: torch.Tensor = None
+    """The distance of the ray hits.
+
+    Shape is (N, B), where N is the number of sensors, B is the number of rays
+    in the scan pattern per sensor.
+    """
