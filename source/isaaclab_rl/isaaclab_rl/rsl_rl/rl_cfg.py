@@ -67,6 +67,14 @@ class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """The number of RNN layers."""
 
 
+@configclass
+class RslRlPpoActorCriticDepthImageCfg(RslRlPpoActorCriticCfg):
+    """Configuration for the PPO actor-critic networks with depth image encoder."""
+
+    class_name: str = "ActorCriticDepthImage"
+    """The policy class name. Default is ActorCriticDepthImage."""
+
+
 ############################
 # Algorithm configurations #
 ############################

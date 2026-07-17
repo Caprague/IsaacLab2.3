@@ -66,6 +66,14 @@ class RslRlDistillationStudentTeacherRecurrentCfg(RslRlDistillationStudentTeache
     """Whether the teacher network is recurrent too."""
 
 
+@configclass
+class RslRlDistillationStudentTeacherDepthImageCfg(RslRlDistillationStudentTeacherCfg):
+    """Configuration for the distillation student-teacher networks with depth image encoder."""
+
+    class_name: str = "StudentTeacherDepthImage"
+    """The policy class name. Default is StudentTeacherDepthImage."""
+
+
 ############################
 # Algorithm configurations #
 ############################

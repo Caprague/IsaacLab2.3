@@ -101,6 +101,54 @@ gym.register(
     },
 )
 
+# -------------------------------------------------------------------------------------------------------
+# Skill Walk - Mid360 Depth 10Hz
+gym.register(
+    id="Go2-Loco-Skill-Walk-Mid360Depth-10Hz",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_loco_skill_walk_mid360_depth_10hz_cfg:Go2LocomotionSkillEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_walk_mid360_depth_10hz:UnitreeGo2LocoSkillPPORunnerCfg",
+        "rsl_rl_distillation_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg_walk_mid360_depth_10hz:UnitreeGo2LocoSkillDistillationRunnerCfg",
+    },
+)
+
+gym.register(
+    id="Go2-Loco-Skill-Walk-Mid360Depth-10Hz-Play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_loco_skill_walk_mid360_depth_10hz_cfg:Go2LocomotionSkillEnvCfg_Play",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_walk_mid360_depth_10hz:UnitreeGo2LocoSkillPPORunnerCfg",
+        "rsl_rl_distillation_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg_walk_mid360_depth_10hz:UnitreeGo2LocoSkillDistillationRunnerCfg",
+    },
+)
+
+# -------------------------------------------------------------------------------------------------------
+# Skill Walk - Mid360 Depth 10Hz GRU
+gym.register(
+    id="Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_loco_skill_walk_mid360_depth_10hz_gru_cfg:Go2LocomotionSkillEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_walk_mid360_depth_10hz_gru:UnitreeGo2LocoSkillPPORunnerCfg",
+        "rsl_rl_distillation_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru:UnitreeGo2LocoSkillDistillationRunnerCfg",
+    },
+)
+
+gym.register(
+    id="Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU-Play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_loco_skill_walk_mid360_depth_10hz_gru_cfg:Go2LocomotionSkillEnvCfg_Play",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_walk_mid360_depth_10hz_gru:UnitreeGo2LocoSkillPPORunnerCfg",
+        "rsl_rl_distillation_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru:UnitreeGo2LocoSkillDistillationRunnerCfg",
+    },
+)
+
 # ------------------------------------------------------------------------------------------------------
 # Skill Walk Perception Data Collection
 gym.register(

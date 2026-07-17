@@ -149,7 +149,7 @@ def create_color_bar(max_range=10.0, bar_height=540, bar_width=60):
         
         bar[y, :] = [int(255 * b), int(255 * g), int(255 * r)]
     
-    cv2.putText(bar, f"{max_range:.0f}m", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    cv2.putText(bar, f"{max_range:.1f}m", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     cv2.putText(bar, "0m", (15, bar_height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     
     return bar
@@ -198,7 +198,7 @@ class Mid360Visualizer:
         render_option.point_size = 8.0
         render_option.background_color = np.asarray([0.35, 0.35, 0.35])
         
-        max_range_m = 2.0
+        max_range_m = 2.5
         sphere_points = []
         sphere_lines = []
         

@@ -228,7 +228,7 @@ UNITREE_GO2_SELF_COLIISIONS_CFG = ArticulationCfg(
 
 UNITREE_GO2_MID360_NX_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/go2_mid360/go2_mid360_nx.usd",
+        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -272,7 +272,7 @@ UNITREE_GO2_MID360_NX_CFG = ArticulationCfg(
 
 UNITREE_GO2_D435X2_NX_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/go2_realsense_x2/go2_d435x2_nx.usd",
+        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

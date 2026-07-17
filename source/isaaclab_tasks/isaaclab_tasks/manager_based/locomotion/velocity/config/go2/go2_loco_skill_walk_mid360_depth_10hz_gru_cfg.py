@@ -125,7 +125,7 @@ class MySceneCfg(InteractiveSceneCfg):
                 merge_prim_meshes=True,
             ),
             RayCasterLidarCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/Robot/radar",     # 针对雷达保护罩
+                prim_expr="{ENV_REGEX_NS}/Robot/head_mid360_loader",     # 针对雷达保护罩和固定底座
                 track_mesh_transforms=True,
                 merge_prim_meshes=True,
             ),
@@ -440,10 +440,10 @@ class ObservationsCfg:
                 "max_elevation_deg": 52.0,
                 "aggregation_method": "mean",
                 "log_k": 10.0,
-                "dropout_prob": 0.1,
+                "dropout_prob": 0.05,
             },
-            scale=3.0,
-            clip=(0.0, 1.0),
+            scale=2.0,
+            clip=(0.0, 2.5),
         )
         
         def __post_init__(self):
@@ -452,6 +452,7 @@ class ObservationsCfg:
             self.history_length = 1
 
     mid360_depth: Mid360Depth = Mid360Depth()
+
 
 # ============================================================================================================
 # 定义事件 CFG
