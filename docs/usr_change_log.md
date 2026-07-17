@@ -1,6 +1,38 @@
 # 用户变更日志
 <!-- 按时间倒序排列，最新修改在最顶部 -->
 
+## v0.1.3 (2026-07-17)
+
+### 新增功能
+
+- **蒸馏训练配置完善**：添加 `RslRlDistillationStudentTeacherDepthImageCfg` 配置类，支持学生网络融入深度图 CNN 特征提取模块
+- **新环境注册**：注册 `Go2-Loco-Skill-Walk-Mid360Depth-10Hz` 和 `Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU` 环境及 Play 版本
+  - `Go2-Loco-Skill-Walk-Mid360Depth-10Hz`：采用**原始深度图+帧标记**方式处理深度图10Hz与Policy 50Hz的频率兼容性，通过 `depth_image_age` 观测函数标记深度图存留帧数，CNN提取空间特征后拼接时序标记位输入策略网络
+  - `Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU`：预期使用**GRU时序网络**提取本体信息和深度图信息的时序特征来解决频率同步问题，环境配置已创建，GRU网络实现及配置正确性有待后期检查验证
+- **PPO 深度图配置**：添加 `RslRlPpoActorCriticDepthImageCfg` 配置类，支持深度图特征提取网络
+
+### Bug修复
+
+- **深度信息截断问题**：修复 `mid360_depth` 观测 `clip=(0.0, 1.0)` 导致大部分深度值被截断为1的问题，改为 `clip=(0.0, 2.5)`
+- **可视化色条标注**：修复 `mid360_visualizer.py` 色条标注格式错误（`.0f`→`.1f`），正确显示2.5m
+
+### 修改文件
+
+- `User/Projs/02_mid360_to_depth_image/mid360_visualizer.py` - 色条标注格式修正，包围球半径统一为2.5m
+- `source/isaaclab_assets/isaaclab_assets/robots/unitree.py` - 更新 Go2 Mid360 和 D435X2 机器人 USD 文件路径
+- `source/isaaclab_rl/isaaclab_rl/rsl_rl/distillation_cfg.py` - 添加 `RslRlDistillationStudentTeacherDepthImageCfg` 配置类
+- `source/isaaclab_rl/isaaclab_rl/rsl_rl/rl_cfg.py` - 添加 `RslRlPpoActorCriticDepthImageCfg` 配置类
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/__init__.py` - 注册新环境
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_cfg.py` - 深度图观测参数优化（scale: 3.0→2.0, clip: (0.0,1.0)→(0.0,2.5), dropout_prob: 0.1→0.05），更新 raycast target 和随机化配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_gru_cfg.py` - 同上修改
+
+### 新增文件
+
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_distillation_cfg_walk_mid360_depth_10hz.py` - 蒸馏训练配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru.py` - GRU 蒸馏训练配置
+
+---
+
 ## v0.1.2 (2026-07-07)
 
 ### 新增功能
