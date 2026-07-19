@@ -479,8 +479,8 @@ class EventCfg:
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-1.0, 1.5),
+            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+            "mass_distribution_params": (0.0, 1.5),
             "operation": "add",
         },
     )
@@ -488,9 +488,9 @@ class EventCfg:
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
             "com_range": {
-                "x": (-0.015, 0.03),
+                "x": (-0.015, 0.015),
                 "y": (-0.015, 0.015),
                 "z": (0.00, 0.04),
             },
@@ -785,6 +785,10 @@ class TerminationsCfg:
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
+    )
+    orin_nx_loader_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
     )
 
 
