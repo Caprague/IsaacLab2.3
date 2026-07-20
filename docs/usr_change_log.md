@@ -1,6 +1,43 @@
 # 用户变更日志
 <!-- 按时间倒序排列，最新修改在最顶部 -->
 
+## v0.1.4 (2026-07-20)
+
+### 新增功能
+
+- **规则网格射线模式**：新增 `Mid360GridPatternCfg` 配置类和 `mid360_grid_pattern` 函数，生成 180×32 规则网格射线（5760条），替代动态扫描模式提升训练性能
+- **mid360_grid_depth_image 观测函数**：针对规则网格模式优化的深度图转换函数，直接reshape无需坐标转换
+- **LiDAR模式切换**：添加 `use_simple_lidar` 参数，训练时启用简化模式（规则网格+mid360_grid_depth_image），测试/部署时使用原动态模式（CSV扫描+mid360_structured_depth_image）
+- **邻域填充功能**：`mid360_structured_depth_image` 和 `mid360_grid_depth_image` 均支持 `fill_invalid` 参数，对无效像素进行1轮填充（周围≥2个有效点时取邻域均值）
+
+### Bug修复
+
+- **深度图上下颠倒**：修复 `mid360_grid_pattern` 函数中 `torch.meshgrid` 参数顺序错误，改为 `torch.meshgrid(zenith, azimuth, indexing="xy")` 确保输出格式与真实模式一致（行优先）
+- **深度图截断逻辑**：统一 `mid360_structured_depth_image` 的距离截断规则，超出max_range_m和低于min_range_m的点均设为0
+- **inf值处理**：聚合后inf值截断到max_range_m
+
+### 修改文件
+
+- `source/isaaclab/isaaclab/envs/mdp/observations.py` - 添加 `mid360_grid_depth_image` 函数，完善 `mid360_structured_depth_image` 的截断、填充逻辑，使用预计算ray_distance
+- `source/isaaclab/isaaclab/sensors/ray_caster/patterns/patterns.py` - 添加 `mid360_grid_pattern` 函数，修复meshgrid参数顺序
+- `source/isaaclab/isaaclab/sensors/ray_caster/patterns/patterns_cfg.py` - 添加 `Mid360GridPatternCfg` 配置类
+- `source/isaaclab/isaaclab/sensors/ray_caster/ray_caster_lidar.py` - 修复 `_original_ray_directions` 初始化问题
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_cfg.py` - 添加 `use_simple_lidar` 参数，完善stage配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_gru_cfg.py` - 同上修改
+- `User/Projs/02_mid360_to_depth_image/mid360_visualizer.py` - 深度图处理逻辑与observations.py完全对齐，添加fill_invalid和dropout_prob参数
+
+### 新增文件
+
+- `User/Projs/02_mid360_to_depth_image/visualize_depth_comparison.py` - 深度图对比可视化工具
+
+### 配置优化
+
+- **环境切换机制**：`unitree.py` 和 `go2_loco_skill_walk_mid360_depth_10hz_cfg.py` 添加 `environment` 参数，通过 `"local"`/`"server"` 自动切换所有硬编码路径
+- **训练阶段化配置**：`stage` 参数控制 base_velocity 命令范围、传感器配置、mid360_depth 观测组和更新周期
+- **PPO训练配置自动同步**：`max_iterations` 根据stage值自动设置（stage1=4001, stage2=6001）
+
+---
+
 ## v0.1.3 (2026-07-17)
 
 ### 新增功能
