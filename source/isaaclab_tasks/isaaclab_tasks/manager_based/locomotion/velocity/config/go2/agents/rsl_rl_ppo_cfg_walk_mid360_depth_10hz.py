@@ -17,18 +17,18 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 250
     experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz"
 
+    env_stage = "stage1"        # stage1 or stage2
+
     def __post_init__(self):
-        from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.go2_loco_skill_walk_mid360_depth_10hz_cfg import Go2LocomotionSkillEnvCfg
-        env_stage = Go2LocomotionSkillEnvCfg.stage
-        if env_stage == "stage1":
+        if self.env_stage == "stage1":
             self.max_iterations = 4001
-        elif env_stage == "stage2":
+        elif self.env_stage == "stage2":
             self.max_iterations = 6001
-        elif env_stage == "stage3":
+        elif self.env_stage == "stage3":
             raise ValueError("stage3 requires distillation training, use <--agent rsl_rl_distillation_cfg_entry_point> !")
         else:
-            raise ValueError(f"Unknown stage: {env_stage}, choose from: stage1, stage2")
-
+            raise ValueError(f"Unknown stage: {self.env_stage}, choose from: stage1, stage2")
+   
     obs_groups = {
         "policy": ["proprioception", "mapScans", "privileged"],
         "critic": ["proprioception", "mapScans", "privileged"],
