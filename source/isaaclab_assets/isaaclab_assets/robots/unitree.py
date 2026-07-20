@@ -26,6 +26,20 @@ from isaaclab.actuators import ActuatorNetMLPCfg, DCMotorCfg, ImplicitActuatorCf
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 
+ENVIRONMENT: str = "local"
+"""运行环境: "local" (本机) 或 "server" (服务器)，修改此变量自动切换所有USD路径"""
+
+USD_PATHS = {
+    "local": {
+        "go2_mid360": "/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
+        "go2_d435x2": "/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
+    },
+    "server": {
+        "go2_mid360": "/home/ls_gms/Isaac/AssetsSim5.0/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
+        "go2_d435x2": "/home/ls_gms/Isaac/AssetsSim5.0/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
+    },
+}
+
 ##
 # Configuration - Actuators.
 ##
@@ -228,7 +242,7 @@ UNITREE_GO2_SELF_COLIISIONS_CFG = ArticulationCfg(
 
 UNITREE_GO2_MID360_NX_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
+        usd_path=USD_PATHS[ENVIRONMENT]["go2_mid360"],
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -272,7 +286,7 @@ UNITREE_GO2_MID360_NX_CFG = ArticulationCfg(
 
 UNITREE_GO2_D435X2_NX_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/gms/Isaac/IsaacSim5.0/Assets/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
+        usd_path=USD_PATHS[ENVIRONMENT]["go2_d435x2"],
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

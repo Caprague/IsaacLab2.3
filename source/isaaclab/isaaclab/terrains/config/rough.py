@@ -139,7 +139,7 @@ SKILL_WALK_TERRAINS_CFG = TerrainGeneratorCfg(
     },
 )
 
-SKILL_WALK_PLUS_TERRAINS_S1_CFG = TerrainGeneratorCfg(
+SKILL_WALK_PLUS_TERRAINS_EASY_CFG = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=100.0,
     num_rows=10,
@@ -194,7 +194,7 @@ SKILL_WALK_PLUS_TERRAINS_S1_CFG = TerrainGeneratorCfg(
     },
 )
 
-SKILL_WALK_PLUS_TERRAINS_S2_CFG = TerrainGeneratorCfg(
+SKILL_WALK_PLUS_TERRAINS_HARD_CFG = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=100.0,
     num_rows=10,

@@ -30,8 +30,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 ##
 # Pre-defined configs - Rough Terrain
 ##
-from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_S1_CFG  # isort: skip
-from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_S2_CFG  # isort: skip
+from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_HARD_CFG  # isort: skip
 
 ##
 # Pre-defined configs - Unitree Go2
@@ -51,7 +50,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=SKILL_WALK_PLUS_TERRAINS_S2_CFG,
+        terrain_generator=SKILL_WALK_PLUS_TERRAINS_HARD_CFG,
         max_init_terrain_level=5,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -85,55 +84,6 @@ class MySceneCfg(InteractiveSceneCfg):
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
-    )
-    # 主传感雷达
-    head_mid360_scanner = RayCasterLidarCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-        max_distance=50.0,
-        ray_alignment="base",
-        yaw_inv=True,
-        pattern_cfg=patterns.Mid360PatternCfg(
-            csv_file_path="/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv",
-            update_frequency_hz=10.0,
-        ),
-        drift_range=(0.0, 0.01),
-        noise_cfg=RayCasterLidarCfg.NoiseCfg(
-            enable_range_noise=True,
-            range_noise_std_base=0.005,
-            range_noise_std_factor=0.0015,
-            enable_angle_noise=True,
-            angle_noise_std_deg=0.15,
-        ),
-        dynamic_pattern=True,
-        debug_vis=True,
-        mesh_prim_paths=[
-            "/World/ground",                                # 静态地面
-            RayCasterLidarCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/Robot/.*_thigh",
-                track_mesh_transforms=True,                 # 跟踪腿部运动
-                merge_prim_meshes=True,
-            ),
-            RayCasterLidarCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/Robot/.*_calf",
-                track_mesh_transforms=True,
-                merge_prim_meshes=True,
-            ),
-            RayCasterLidarCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/Robot/.*_foot",
-                track_mesh_transforms=True,
-                merge_prim_meshes=True,
-            ),
-            RayCasterLidarCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/Robot/head_mid360_loader",     # 针对雷达保护罩和固定底座
-                track_mesh_transforms=True,
-                merge_prim_meshes=True,
-            ),
-        ],
-        data_collection=False,
-        data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
-        pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
-        pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
     )
     # 基座高度检测器
     base_height_scanner = RayCasterCfg(
@@ -238,31 +188,17 @@ class MySceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
-    # stage1 enable ===================================================================================================
     base_velocity = mdp.UniformVelocityCommandCfgUser(
         asset_name="robot",
         resampling_time_range=(10.0, 20.0),
         rel_standing_envs=0.05,
-        rel_vel_world_envs=1.0,                 # must set to 1.0
+        rel_vel_world_envs=1.0,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(-0.0, 0.0)
+            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
         ),
     )
-
-    # # stage2 enable ===================================================================================================
-    # base_velocity = mdp.UniformVelocityCommandCfgUser(
-    #     asset_name="robot",
-    #     resampling_time_range=(10.0, 20.0),
-    #     rel_standing_envs=0.05,
-    #     rel_vel_world_envs=0.75,              # 0.75 : 0.25
-    #     heading_control_stiffness=0.5,
-    #     debug_vis=True,
-    #     ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-    #         lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
-    #     ),
-    # )
 
 
 # ============================================================================================================
@@ -451,7 +387,7 @@ class ObservationsCfg:
             self.concatenate_terms = True
             self.history_length = 1
 
-    mid360_depth: Mid360Depth = Mid360Depth()
+    mid360_depth: Mid360Depth | None = None
 
 
 # ============================================================================================================
@@ -757,7 +693,7 @@ class RewardsCfg:
     undesired_contacts_radar = RewTerm(
         func=mdp.undesired_contacts,
         weight=-10.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="radar"), "threshold": 1.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
     undesired_contacts_thigh = RewTerm(
@@ -811,6 +747,12 @@ class CurriculumCfg:
 class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
+    stage: str = "stage1"
+    """训练阶段: stage1(低速向前)/stage2(全向移动)/stage3(student训练，启用mid360)"""
+
+    environment: str = "local"
+    """运行环境: "local" (本机) 或 "server" (服务器)"""
+
     # 交互场景类实例化
     scene: MySceneCfg = MySceneCfg(num_envs=16, env_spacing=2.5)
 
@@ -844,6 +786,22 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physics_material = self.scene.terrain.physics_material  # 指定刚体的默认物理材质设置
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**16
 
+        # ============================================================
+        # 阶段配置 - 根据stage参数自动切换
+        # ============================================================
+        if self.stage == "stage1":
+            self._apply_stage1_config()
+        elif self.stage == "stage2":
+            self._apply_stage2_config()
+        elif self.stage == "stage3":
+            self._apply_stage3_config()
+        else:
+            raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3")
+
+        # stage3: mid360传感器更新频率
+        if self.stage == "stage3" and self.scene.head_mid360_scanner is not None:
+            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
+
         # 修改传感器更新频率
         if self.scene.contact_forces is not None:                   # 接触力传感器
             self.scene.contact_forces.update_period = self.sim.dt   # 200 Hz
@@ -851,8 +809,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.base_imu.update_period = self.sim.dt         # 200 Hz
         if self.scene.height_scanner is not None:  # 高度扫描仪
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.head_mid360_scanner is not None: # 头部mid360
-            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
         if self.scene.base_height_scanner is not None:  # base 单点高度扫描
             self.scene.base_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.FL_foot_height_scanner is not None:  # FL 足端单点高度扫描
@@ -881,6 +837,100 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         else:
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = False
+
+    def _apply_stage1_config(self):
+        """Stage1: 基础训练 - 低速向前，无转向"""
+        self.commands.base_velocity.rel_vel_world_envs = 1.0
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
+            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), 
+            ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
+        )
+        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
+        self.scene.terrain.max_init_terrain_level = 5
+
+    def _apply_stage2_config(self):
+        """Stage2: 进阶训练 - 全向移动，支持转向"""
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), 
+            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        )
+        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
+        self.scene.terrain.max_init_terrain_level = 5
+
+    def _apply_stage3_config(self):
+        """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
+        # 命令配置 - 全向移动
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), 
+            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        )
+        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
+        self.scene.terrain.max_init_terrain_level = 5
+
+        # 路径映射 - 根据environment自动切换
+        paths = {
+            "local": {
+                "mid360_csv": "/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv",
+            },
+            "server": {
+                "mid360_csv": "/home/ls_gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
+            },
+        }
+
+        # 添加mid360传感器
+        self.scene.head_mid360_scanner = RayCasterLidarCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
+            max_distance=3.0,
+            ray_alignment="base",
+            yaw_inv=True,
+            pattern_cfg=patterns.Mid360PatternCfg(
+                csv_file_path=paths[self.environment]["mid360_csv"],
+                update_frequency_hz=10.0,
+            ),
+            drift_range=(0.0, 0.01),
+            noise_cfg=RayCasterLidarCfg.NoiseCfg(
+                enable_range_noise=True,
+                range_noise_std_base=0.005,
+                range_noise_std_factor=0.0015,
+                enable_angle_noise=True,
+                angle_noise_std_deg=0.15,
+            ),
+            dynamic_pattern=True,
+            debug_vis=True,
+            mesh_prim_paths=[
+                "/World/ground",
+                RayCasterLidarCfg.RaycastTargetCfg(
+                    prim_expr="{ENV_REGEX_NS}/Robot/.*_thigh",
+                    track_mesh_transforms=True,
+                    merge_prim_meshes=True,
+                ),
+                RayCasterLidarCfg.RaycastTargetCfg(
+                    prim_expr="{ENV_REGEX_NS}/Robot/.*_calf",
+                    track_mesh_transforms=True,
+                    merge_prim_meshes=True,
+                ),
+                RayCasterLidarCfg.RaycastTargetCfg(
+                    prim_expr="{ENV_REGEX_NS}/Robot/.*_foot",
+                    track_mesh_transforms=True,
+                    merge_prim_meshes=True,
+                ),
+                RayCasterLidarCfg.RaycastTargetCfg(
+                    prim_expr="{ENV_REGEX_NS}/Robot/head_mid360_loader",
+                    track_mesh_transforms=True,
+                    merge_prim_meshes=True,
+                ),
+            ],
+            data_collection=False,
+            data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
+            pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
+            pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
+        )
+
+        # 添加mid360深度图观测
+        self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
 
 
 # ============================================================================================================
