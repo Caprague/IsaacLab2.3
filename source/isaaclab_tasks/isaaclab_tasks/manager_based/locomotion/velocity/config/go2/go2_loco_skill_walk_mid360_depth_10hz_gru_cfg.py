@@ -435,7 +435,7 @@ class EventCfg:
         },
     )
 
-    add_base_mass = EventTerm(
+    add_loader_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
@@ -539,24 +539,7 @@ class EventCfg:
     )
 
     # interval
-    push_jump = EventTerm(                              # teacher - stage1 only
-        func=mdp.push_when_still_stucked_random,
-        mode="interval",
-        interval_range_s=(1.0, 2.0),
-        params={
-            "command_name": "base_velocity",
-            "vel_diff_threshold": 0.3,
-            "stucked_counter_cnt": 3,
-            "velocity_range": {
-                "x": (0.75, 1.5), 
-                "y": (0.0, 0.0), 
-                "z": (0.75, 1.5),
-                "roll": (0.0, 0.0), 
-                "pitch": (0.0, 0.0), 
-                "yaw":(0.0, 0.0), 
-            }
-        },
-    )
+    push_jump = None
 
 
 # ============================================================================================================
@@ -825,13 +808,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         else:
             raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3")
 
-        # stage3: mid360传感器更新频率
-        if self.stage == "stage3" and self.scene.head_mid360_scanner is not None:
-            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
-
-        self._apply_stage3_config()
-        self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
-
         # 修改传感器更新频率
         if self.scene.contact_forces is not None:                   # 接触力传感器
             self.scene.contact_forces.update_period = self.sim.dt   # 200 Hz
@@ -877,6 +853,26 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         )
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
+
+        # push_jump: stage1 only - 启用推动帮助机器人脱离卡住状态
+        self.events.push_jump = EventTerm(
+            func=mdp.push_when_still_stucked_random,
+            mode="interval",
+            interval_range_s=(1.0, 2.0),
+            params={
+                "command_name": "base_velocity",
+                "vel_diff_threshold": 0.3,
+                "stucked_counter_cnt": 3,
+                "velocity_range": {
+                    "x": (0.75, 1.5), 
+                    "y": (0.0, 0.0), 
+                    "z": (0.75, 1.5),
+                    "roll": (0.0, 0.0), 
+                    "pitch": (0.0, 0.0), 
+                    "yaw": (0.0, 0.0), 
+                }
+            },
+        )
 
     def _apply_stage2_config(self):
         """Stage2: 进阶训练 - 全向移动，支持转向"""
@@ -977,6 +973,10 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             # 使用原始深度图观测函数
             self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
 
+        # mid360传感器更新频率 - 10 Hz
+        if self.scene.head_mid360_scanner is not None:
+            self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt
+
 
 # ============================================================================================================
 # 定义环境管理器 CFG - Play 播放专用
@@ -986,6 +986,10 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()
+        
+        # 部署播放策略，使用stage3，拟真模式转换Mid360深度图
+        self.stage = "stage3"
+        self.use_simple_lidar = False
 
         # 小规模播放
         self.scene.num_envs = 32
@@ -997,9 +1001,9 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
         self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
 
-        # # Play 播放时，机器人生成位置随机化，不跟随地形等级
-        # self.scene.terrain.max_init_terrain_level = None
-        # self.scene.terrain.terrain_generator.curriculum = False
+        # Play 播放时，机器人生成位置随机化，不跟随地形等级
+        self.scene.terrain.max_init_terrain_level = None
+        self.scene.terrain.terrain_generator.curriculum = False
 
         # 可视化调整
         self.scene.base_height_scanner.debug_vis = False
@@ -1014,5 +1018,4 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
 
         # 事件设定调整
         self.events.push_robot = None
-        self.events.add_base_mass.mass_distribution_params = (0.0, 3.0)
 

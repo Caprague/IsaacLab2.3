@@ -35,6 +35,8 @@
 - **环境切换机制**：`unitree.py` 和 `go2_loco_skill_walk_mid360_depth_10hz_cfg.py` 添加 `environment` 参数，通过 `"local"`/`"server"` 自动切换所有硬编码路径
 - **训练阶段化配置**：`stage` 参数控制 base_velocity 命令范围、传感器配置、mid360_depth 观测组和更新周期
 - **PPO训练配置自动同步**：`max_iterations` 根据stage值自动设置（stage1=4001, stage2=6001）
+- **事件统一管理**：`push_jump` 事件从 EventsCfg 中移除，改为在 `_apply_stage1_config()` 中动态创建，stage2/stage3 自动禁用
+- **stage配置集中化**：mid360 传感器更新频率配置从独立判断移到 `_apply_stage3_config()` 中统一管理
 
 ---
 
