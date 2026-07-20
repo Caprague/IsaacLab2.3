@@ -678,7 +678,7 @@ class RewardsCfg:
     # feet 垂直面碰撞惩罚
     feet_stumble = RewTerm(
         func=mdp.feet_stumble,
-        weight=-1.0,
+        weight=-0.1,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     # feet 同侧足端安全距离惩罚 [姿态]
@@ -717,7 +717,7 @@ class RewardsCfg:
     # 接触惩罚 [姿态]
     undesired_contacts_radar = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-5.0,
+        weight=-0.5,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
