@@ -31,6 +31,13 @@
 - `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_distillation_cfg_walk_mid360_depth_10hz.py` - 蒸馏训练配置
 - `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru.py` - GRU 蒸馏训练配置
 
+### 配置优化
+
+- **环境切换机制**：在 `unitree.py` 和 `go2_loco_skill_walk_mid360_depth_10hz_cfg.py` 中添加 `environment` 参数，通过修改 `"local"` 或 `"server"` 自动切换所有硬编码路径
+- **训练阶段化配置**：`Go2LocomotionSkillEnvCfg` 添加 `stage` 参数，实现三个阶段自动配置切换（stage1: 低速向前/S1地形，stage2: 全向移动/S2地形，stage3: 启用mid360传感器）
+- **PPO训练配置自动同步**：`UnitreeGo2LocoSkillPPORunnerCfg` 自动读取环境配置的 `stage` 值，stage1→max_iterations=4001，stage2→max_iterations=6001
+- **地形配置重命名**：`SKILL_WALK_PLUS_TERRAINS_S1_CFG`→`SKILL_WALK_PLUS_TERRAINS_EASY_CFG`，`SKILL_WALK_PLUS_TERRAINS_S2_CFG`→`SKILL_WALK_PLUS_TERRAINS_HARD_CFG`
+
 ---
 
 ## v0.1.2 (2026-07-07)
