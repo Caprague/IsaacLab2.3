@@ -37,6 +37,7 @@
 - **PPO训练配置自动同步**：`max_iterations` 根据stage值自动设置（stage1=4001, stage2=6001）
 - **事件统一管理**：`push_jump` 事件从 EventsCfg 中移除，改为在 `_apply_stage1_config()` 中动态创建，stage2/stage3 自动禁用
 - **stage配置集中化**：mid360 传感器更新频率配置从独立判断移到 `_apply_stage3_config()` 中统一管理
+- **深度图帧标记**：`Mid360Depth` 和 `Mid360DepthGrid` 观测组添加 `depth_image_age` 观测项，配置 `max_age=5` + `scale=5.0`，实现10Hz深度图与50Hz策略的频率同步
 
 ---
 

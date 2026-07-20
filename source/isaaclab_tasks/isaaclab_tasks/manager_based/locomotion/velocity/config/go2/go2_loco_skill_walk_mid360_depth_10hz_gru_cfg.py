@@ -381,6 +381,15 @@ class ObservationsCfg:
             scale=2.0,
             clip=(0.0, 2.5),
         )
+        # 深度图帧数标记 - 用于多速率同步（10Hz深度图 + 50Hz policy）
+        depth_image_age = ObsTerm(
+            func=mdp.depth_image_age,
+            params={
+                "sensor_cfg": SceneEntityCfg("head_mid360_scanner"),
+                "max_age": 5,
+            },
+            scale=5.0,
+        )
         
         def __post_init__(self):
             self.enable_corruption = True   # Noised
@@ -404,6 +413,15 @@ class ObservationsCfg:
             },
             scale=2.0,
             clip=(0.0, 2.5),
+        )
+        # 深度图帧数标记 - 用于多速率同步（10Hz深度图 + 50Hz policy）
+        depth_image_age = ObsTerm(
+            func=mdp.depth_image_age,
+            params={
+                "sensor_cfg": SceneEntityCfg("head_mid360_scanner"),
+                "max_age": 5,
+            },
+            scale=5.0,
         )
         
         def __post_init__(self):
