@@ -38,8 +38,9 @@ def mid360_pointcloud_to_depth_image(
     max_range_m=2.5,
     min_elevation_deg=-7.0,
     max_elevation_deg=52.0,
-    aggregation_method="mean",
     log_k=10.0,
+    dropout_prob=0.0,
+    fill_invalid=False,
 ):
     if points_np.ndim == 2:
         points_np = points_np[np.newaxis, ...]
@@ -63,39 +64,55 @@ def mid360_pointcloud_to_depth_image(
     u_idx = torch.clamp(u_idx, 0, width - 1)
     v_idx = torch.clamp(v_idx, 0, height - 1)
     
-    ranges = torch.where(ranges > max_range_m, torch.tensor(max_range_m, device=device), ranges)
+    ranges = torch.where(ranges > max_range_m, torch.tensor(0.0, device=device), ranges)
     ranges = torch.where(ranges < min_range_m, torch.tensor(0.0, device=device), ranges)
     valid_mask = ranges > 0
     
     if log_k > 0:
-        log_denominator = np.log(1 + log_k * max_range_m)
+        log_denominator = torch.log(torch.tensor(1 + log_k * max_range_m, device=device))
         ranges = torch.where(
             valid_mask,
             torch.log(1 + log_k * ranges) / log_denominator * max_range_m,
             ranges
         )
-    depth_map = torch.full((N, height * width), float("inf"), device=device)
+    
     flat_idx = v_idx * width + u_idx
     
-    if aggregation_method == "min":
-        filtered_ranges = torch.where(valid_mask, ranges, float("inf"))
-        depth_map.scatter_reduce_(1, flat_idx, filtered_ranges, reduce="min", include_self=False)
-    elif aggregation_method == "max":
-        filtered_ranges = torch.where(valid_mask, ranges, -float("inf"))
-        depth_map.scatter_reduce_(1, flat_idx, filtered_ranges, reduce="max", include_self=False)
-    elif aggregation_method == "mean":
-        count_map = torch.zeros((N, height * width), device=device)
-        count_map.scatter_add_(1, flat_idx, valid_mask.float())
-        sum_map = torch.zeros((N, height * width), device=device)
-        sum_map.scatter_add_(1, flat_idx, ranges * valid_mask.float())
-        depth_map = torch.where(count_map > 0, sum_map / count_map, float("inf"))
-    else:
-        raise ValueError(f"Unknown aggregation method: {aggregation_method}")
+    count_map = torch.zeros((N, height * width), device=device)
+    count_map.scatter_add_(1, flat_idx, valid_mask.float())
     
-    depth_map = depth_map.view(N, height, width)
-    depth_map = torch.where(depth_map >= float("inf"), torch.tensor(0.0, device=device), depth_map)
+    sum_map = torch.zeros((N, height * width), device=device)
+    sum_map.scatter_add_(1, flat_idx, ranges * valid_mask.float())
     
-    return depth_map[0].cpu().numpy()
+    depth_map = torch.where(count_map > 0, sum_map / count_map, torch.tensor(0.0, device=device))
+    depth_map = depth_map.view(N, height, width).unsqueeze(-1)
+    
+    if dropout_prob > 0:
+        dropout_mask = torch.rand_like(depth_map) > dropout_prob
+        depth_map = depth_map * dropout_mask.float()
+    
+    if fill_invalid:
+        depth_map = depth_map.permute(0, 3, 1, 2)
+        valid_mask = depth_map > 0
+        
+        padding = torch.nn.ReplicationPad2d(1)
+        padded_depth = padding(depth_map)
+        padded_valid = padding(valid_mask.float())
+        
+        kernel = torch.ones(1, 1, 3, 3, device=device)
+        kernel[0, 0, 1, 1] = 0
+        
+        neighbor_count = torch.nn.functional.conv2d(padded_valid, kernel, padding=0)
+        neighbor_sum = torch.nn.functional.conv2d(padded_depth, kernel, padding=0)
+        
+        fill_mask = (valid_mask.squeeze(1) == 0) & (neighbor_count.squeeze(1) >= 2)
+        fill_values = torch.where(neighbor_count > 0, neighbor_sum / neighbor_count, 0)
+        
+        depth_map = depth_map.squeeze(1)
+        depth_map[fill_mask] = fill_values.squeeze(1)[fill_mask]
+        depth_map = depth_map.unsqueeze(1).permute(0, 2, 3, 1)
+    
+    return depth_map[0].cpu().numpy().squeeze()
 
 
 def depth_image_to_color_map(depth_map, max_range=10.0):
@@ -300,8 +317,9 @@ class Mid360Visualizer:
                     max_range_m=2.5,
                     min_elevation_deg=-7.0,
                     max_elevation_deg=52.0,
-                    aggregation_method="mean",
                     log_k=10.0,
+                    dropout_prob=0.0,
+                    fill_invalid=True,
                 )
                 
                 print(f"  深度图: {depth_map.shape}, 有效像素: {(depth_map > 0).sum()}, max深度: {depth_map.max():.2f}m")

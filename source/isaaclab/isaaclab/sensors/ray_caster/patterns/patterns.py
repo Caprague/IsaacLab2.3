@@ -285,8 +285,8 @@ def mid360_grid_pattern(cfg: patterns_cfg.Mid360GridPatternCfg, device: str) -> 
     """
     azimuth = torch.linspace(0, 2 * torch.pi, cfg.width, device=device)
     zenith = torch.linspace(
-        torch.deg2rad(torch.tensor(cfg.min_zenith_deg, device=device)),
         torch.deg2rad(torch.tensor(cfg.max_zenith_deg, device=device)),
+        torch.deg2rad(torch.tensor(cfg.min_zenith_deg, device=device)),
         cfg.height,
         device=device,
     )
