@@ -266,6 +266,45 @@ def lidar_pattern(cfg: patterns_cfg.LidarPatternCfg, device: str) -> tuple[torch
     return ray_starts, ray_directions
 
 
+def mid360_grid_pattern(cfg: patterns_cfg.Mid360GridPatternCfg, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    """The Livox Mid-360 LiDAR grid pattern for ray casting.
+
+    This function generates a regular grid pattern that matches the Mid-360 LiDAR's
+    horizontal (360°) and vertical (52°) field of view, with 180×32 resolution.
+
+    Unlike the dynamic mid360_pattern, this pattern is static and does not change
+    between updates. This makes it much more efficient for training while still
+    providing similar depth information.
+
+    Args:
+        cfg: The configuration instance for the pattern.
+        device: The device to create the pattern on.
+
+    Returns:
+        The starting positions and directions of the rays. Shape is (num_rays, 3) for both tensors.
+    """
+    azimuth = torch.linspace(0, 2 * torch.pi, cfg.width, device=device)
+    zenith = torch.linspace(
+        torch.deg2rad(torch.tensor(cfg.min_zenith_deg, device=device)),
+        torch.deg2rad(torch.tensor(cfg.max_zenith_deg, device=device)),
+        cfg.height,
+        device=device,
+    )
+
+    az_grid, ze_grid = torch.meshgrid(azimuth, zenith, indexing="xy")
+    az_grid = az_grid.flatten()
+    ze_grid = ze_grid.flatten()
+
+    x = torch.sin(ze_grid) * torch.cos(az_grid)
+    y = torch.sin(ze_grid) * torch.sin(az_grid)
+    z = torch.cos(ze_grid)
+
+    ray_directions = torch.stack([x, y, z], dim=1)
+    ray_starts = torch.zeros_like(ray_directions)
+
+    return ray_starts, ray_directions
+
+
 def box_grid_pattern(cfg: patterns_cfg.BoxGridPatternCfg, device: str) -> tuple[torch.Tensor, torch.Tensor]:
     """A 3D box grid pattern for ray casting with multi-face sampling.
 

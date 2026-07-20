@@ -21,6 +21,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers.manager_term_cfg import ObservationTermCfg
 from isaaclab.sensors import Camera, Imu, RayCaster, RayCasterCamera, TiledCamera
+from isaaclab.sensors.ray_caster.ray_caster_lidar import RayCasterLidar
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
@@ -680,6 +681,70 @@ def mid360_structured_depth_image(
 
     depth_map = depth_map.view(N, height, width).unsqueeze(-1)
     depth_map = torch.where(depth_map >= float("inf"), torch.tensor(0.0, device=env.device), depth_map)
+
+    if dropout_prob > 0:
+        dropout_mask = torch.rand_like(depth_map) > dropout_prob
+        depth_map = depth_map * dropout_mask.float()
+
+    return depth_map
+
+
+def mid360_grid_depth_image(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("head_mid360_scanner"),
+    width: int = 180,
+    height: int = 32,
+    min_range_m: float = 0.1,
+    max_range_m: float = 10.0,
+    log_k: float = 10.0,
+    dropout_prob: float = 0.0,
+) -> torch.Tensor:
+    """
+    Convert Mid360 grid pattern LiDAR rays to structured depth image.
+
+    This function is optimized for the Mid360GridPatternCfg, where rays are already
+    arranged in a regular grid pattern (180×32). It directly reshapes the ray distances
+    without the need for spherical coordinate conversion and grid mapping.
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: The sensor configuration.
+        width: Horizontal resolution (default: 180).
+        height: Vertical resolution (default: 32).
+        min_range_m: Minimum valid range in meters. Points below this are set to 0.
+        max_range_m: Maximum valid range in meters. Points above this are clipped.
+        log_k: Log mapping parameter. When > 0, applies log(1+k*d)/log(1+k*max)
+            to compress distant range and enhance close range distinction.
+            Default: 10.0. Set to 0 to disable log mapping.
+        dropout_prob: Probability of randomly setting a pixel to 0.0. Default: 0.0 (disabled).
+            This simulates sensor noise where some pixels randomly lose signal.
+
+    Returns:
+        Structured depth image tensor. Shape: (num_envs, height, width, 1).
+            Invalid pixels are set to 0.0.
+    """
+
+    sensor: RayCasterLidar = env.scene.sensors[sensor_cfg.name]
+
+    ray_distance = sensor.data.ray_distance
+
+    N = env.num_envs
+
+    ranges = ray_distance.clone()
+
+    ranges = torch.where(ranges > max_range_m, torch.tensor(max_range_m, device=env.device), ranges)
+    ranges = torch.where(ranges < min_range_m, torch.tensor(0.0, device=env.device), ranges)
+    valid_mask = ranges > 0
+
+    if log_k > 0:
+        log_denominator = torch.log(torch.tensor(1 + log_k * max_range_m, device=env.device))
+        ranges = torch.where(
+            valid_mask,
+            torch.log(1 + log_k * ranges) / log_denominator * max_range_m,
+            ranges,
+        )
+
+    depth_map = ranges.view(N, height, width).unsqueeze(-1)
 
     if dropout_prob > 0:
         dropout_mask = torch.rand_like(depth_map) > dropout_prob

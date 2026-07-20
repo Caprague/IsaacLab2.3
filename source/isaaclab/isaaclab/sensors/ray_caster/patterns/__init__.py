@@ -8,5 +8,5 @@
 from .patterns import bpearl_pattern, grid_pattern, lidar_pattern, pinhole_camera_pattern
 from .patterns_cfg import BpearlPatternCfg, GridPatternCfg, LidarPatternCfg, PatternBaseCfg, PinholeCameraPatternCfg
 
-from .patterns import single_ray_pattern, mid360_pattern, box_grid_pattern
-from .patterns_cfg import SingleRayPatternCfg, Mid360PatternCfg, BoxGridPatternCfg
+from .patterns import single_ray_pattern, mid360_pattern, mid360_grid_pattern, box_grid_pattern
+from .patterns_cfg import SingleRayPatternCfg, Mid360PatternCfg, Mid360GridPatternCfg, BoxGridPatternCfg

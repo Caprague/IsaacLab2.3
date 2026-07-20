@@ -311,6 +311,61 @@ class LidarPatternCfg(PatternBaseCfg):
 
 
 @configclass
+class Mid360GridPatternCfg(PatternBaseCfg):
+    """Configuration for the Livox Mid-360 LiDAR grid pattern for ray-casting.
+
+    This pattern generates a regular grid of rays that matches the Mid-360 LiDAR's
+    horizontal (360°) and vertical (52°) field of view. Unlike the dynamic Mid360PatternCfg,
+    this pattern is static and does not change between updates, making it much more
+    efficient for training.
+
+    The pattern is defined by:
+    - width: Number of horizontal rays (default: 180, 2° per pixel)
+    - height: Number of vertical rays (default: 32)
+    - min_zenith_deg: Minimum zenith angle (default: 37.8°)
+    - max_zenith_deg: Maximum zenith angle (default: 97.2°)
+
+    These parameters match the Mid-360's actual specifications, providing a good
+    approximation of the real sensor's field of view.
+
+    Example:
+
+    .. code-block:: python
+
+        from isaaclab.sensors import RayCasterCfg
+        from isaaclab.sensors.patterns import Mid360GridPatternCfg
+
+        mid360_scanner = RayCasterCfg(
+            pattern_cfg=Mid360GridPatternCfg(),
+            dynamic_pattern=False,  # Must be False for static pattern
+            update_period=0.1,  # 10 Hz update rate
+            # ... other configurations
+        )
+    """
+
+    func: Callable = patterns.mid360_grid_pattern
+
+    width: int = 180
+    """Number of horizontal rays. Defaults to 180 (2° per pixel)."""
+
+    height: int = 32
+    """Number of vertical rays. Defaults to 32."""
+
+    min_zenith_deg: float = 37.8
+    """Minimum zenith angle in degrees. Defaults to 37.8°.
+
+    The zenith angle is measured from the positive Z axis (up).
+    For Mid-360, this corresponds to an elevation angle of approximately -7°.
+    """
+
+    max_zenith_deg: float = 97.2
+    """Maximum zenith angle in degrees. Defaults to 97.2°.
+
+    For Mid-360, this corresponds to an elevation angle of approximately 52°.
+    """
+
+
+@configclass
 class BoxGridPatternCfg(PatternBaseCfg):
     """Configuration for the box grid pattern for ray-casting.
 

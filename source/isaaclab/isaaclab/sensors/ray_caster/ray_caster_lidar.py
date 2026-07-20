@@ -157,8 +157,6 @@ class RayCasterLidar(MultiMeshRayCaster):
             self.pc_data_saver.set_num_envs(self._view.count)
             self.pose_data_saver.set_num_envs(self._view.count)
 
-        self._original_ray_directions = None
-
     def _initialize_rays_impl(self):
         super()._initialize_rays_impl()
         # re-initialize the data container to LiDAR-specific type after parent call

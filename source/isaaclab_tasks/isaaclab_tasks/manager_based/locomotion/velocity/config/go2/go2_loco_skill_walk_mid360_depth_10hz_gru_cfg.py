@@ -387,7 +387,30 @@ class ObservationsCfg:
             self.concatenate_terms = True
             self.history_length = 1
 
-    mid360_depth: Mid360Depth | None = None
+    @configclass
+    class Mid360DepthGrid(ObsGroup):
+        # Mid360规则网格深度图（简化模式）
+        depth_scan = ObsTerm(
+            func=mdp.mid360_grid_depth_image,
+            params={
+                "sensor_cfg": SceneEntityCfg("head_mid360_scanner"),
+                "width": 180,
+                "height": 32,
+                "min_range_m": 0.1,
+                "max_range_m": 2.5,
+                "log_k": 10.0,
+                "dropout_prob": 0.05,
+            },
+            scale=2.0,
+            clip=(0.0, 2.5),
+        )
+        
+        def __post_init__(self):
+            self.enable_corruption = True   # Noised
+            self.concatenate_terms = True
+            self.history_length = 1
+
+    mid360_depth: Mid360Depth | Mid360DepthGrid | None = None
 
 
 # ============================================================================================================
@@ -753,6 +776,9 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     environment: str = "local"
     """运行环境: "local" (本机) 或 "server" (服务器)"""
 
+    use_simple_lidar: bool = True
+    """是否使用简化LiDAR模式: True(规则网格模式，训练用)/False(真实CSV模式，测试用)"""
+
     # 交互场景类实例化
     scene: MySceneCfg = MySceneCfg(num_envs=16, env_spacing=2.5)
 
@@ -801,6 +827,9 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # stage3: mid360传感器更新频率
         if self.stage == "stage3" and self.scene.head_mid360_scanner is not None:
             self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
+
+        self._apply_stage3_config()
+        self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt  # 10 Hz
 
         # 修改传感器更新频率
         if self.scene.contact_forces is not None:                   # 接触力传感器
@@ -879,28 +908,23 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         }
 
-        # 添加mid360传感器
-        self.scene.head_mid360_scanner = RayCasterLidarCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-            max_distance=3.0,
-            ray_alignment="base",
-            yaw_inv=True,
-            pattern_cfg=patterns.Mid360PatternCfg(
-                csv_file_path=paths[self.environment]["mid360_csv"],
-                update_frequency_hz=10.0,
-            ),
-            drift_range=(0.0, 0.01),
-            noise_cfg=RayCasterLidarCfg.NoiseCfg(
+        # 基础传感器配置（共享部分）
+        base_cfg = {
+            "prim_path": "{ENV_REGEX_NS}/Robot/base",
+            "offset": RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
+            "max_distance": 3.0,
+            "ray_alignment": "base",
+            "yaw_inv": True,
+            "drift_range": (0.0, 0.01),
+            "noise_cfg": RayCasterLidarCfg.NoiseCfg(
                 enable_range_noise=True,
                 range_noise_std_base=0.005,
                 range_noise_std_factor=0.0015,
                 enable_angle_noise=True,
                 angle_noise_std_deg=0.15,
             ),
-            dynamic_pattern=True,
-            debug_vis=True,
-            mesh_prim_paths=[
+            "debug_vis": True,
+            "mesh_prim_paths": [
                 "/World/ground",
                 RayCasterLidarCfg.RaycastTargetCfg(
                     prim_expr="{ENV_REGEX_NS}/Robot/.*_thigh",
@@ -923,14 +947,34 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                     merge_prim_meshes=True,
                 ),
             ],
-            data_collection=False,
-            data_save_path="/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
-            pc_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
-            pose_data_saver_cfg=RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
-        )
+            "data_collection": False,
+            "data_save_path": "/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360_SIMPLE_GRID/10Hz",
+            # "data_save_path": "/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
+            "pc_data_saver_cfg": RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
+            "pose_data_saver_cfg": RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
+        }
 
-        # 添加mid360深度图观测
-        self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
+        if self.use_simple_lidar:
+            # 简化模式：规则网格，静态pattern，5760条射线，训练用
+            self.scene.head_mid360_scanner = RayCasterLidarCfg(
+                **base_cfg,
+                pattern_cfg=patterns.Mid360GridPatternCfg(),
+                dynamic_pattern=False,
+            )
+            # 使用简化的深度图观测函数
+            self.observations.mid360_depth = ObservationsCfg.Mid360DepthGrid()
+        else:
+            # 真实模式：CSV动态扫描，20000条射线，测试用
+            self.scene.head_mid360_scanner = RayCasterLidarCfg(
+                **base_cfg,
+                pattern_cfg=patterns.Mid360PatternCfg(
+                    csv_file_path=paths[self.environment]["mid360_csv"],
+                    update_frequency_hz=10.0,
+                ),
+                dynamic_pattern=True,
+            )
+            # 使用原始深度图观测函数
+            self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
 
 
 # ============================================================================================================
