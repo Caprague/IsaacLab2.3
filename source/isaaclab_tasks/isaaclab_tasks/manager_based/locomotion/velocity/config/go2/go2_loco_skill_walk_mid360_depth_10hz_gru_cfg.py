@@ -462,7 +462,7 @@ class EventCfg:
             "operation": "add",
         },
     )
-    random_base_com = EventTerm(
+    random_loader_com = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
@@ -588,7 +588,7 @@ class RewardsCfg:
     # z 轴线速度惩罚 [姿态]
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     # xy 轴角速度惩罚 [姿态]
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.2)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.1)
     # 姿态不水平惩罚 [姿态]
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
     # 基座高度偏离惩罚 [姿态]
@@ -612,13 +612,13 @@ class RewardsCfg:
     # 基座速度突变惩罚 [平滑]
     base_acc_l2 = RewTerm(
         func=mdp.base_acc_l2,
-        weight=-5.0e-6,
+        weight=-3.0e-6,
         params={"sensor_cfg": SceneEntityCfg("base_imu")},
     )
     # 动作频率惩罚 [平滑]
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_limit, weight=-0.0125)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_limit, weight=-0.01)
     # 关节软限制 [姿态]
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.25)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.2)
     # 前/后向运动时，对hip关节的软限制 [姿态]
     hip_pos_fb_limits = RewTerm(
         func=mdp.hip_joint_pos_fb_limits,
@@ -696,7 +696,7 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.05,
+        weight=-0.04,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
     )
     # 踏足边缘惩罚
@@ -710,14 +710,14 @@ class RewardsCfg:
             "FR_foot_edge_detecter": SceneEntityCfg("FR_foot_edge_detecter"),
             "RL_foot_edge_detecter": SceneEntityCfg("RL_foot_edge_detecter"),
             "RR_foot_edge_detecter": SceneEntityCfg("RR_foot_edge_detecter"),
-            "height_threshold": 0.12,
+            "height_threshold": 0.5,
             "cnt_threshold": 1,
         },
     )
     # 接触惩罚 [姿态]
     undesired_contacts_radar = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-10.0,
+        weight=-5.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
@@ -743,10 +743,6 @@ class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    base_contact = DoneTerm(
-        func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
-    )
     orin_nx_loader_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
