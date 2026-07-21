@@ -378,7 +378,7 @@ class ObservationsCfg:
             self.concatenate_terms = True
             self.history_length = 6
 
-    proprioception_noised: ProprioceptionNoised = ProprioceptionNoised()
+    proprioception_noised: ProprioceptionNoised | None = None
 
 
     @configclass
@@ -1059,6 +1059,9 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             )
             # 使用原始深度图观测函数
             self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
+
+        # proprioception_noised: stage3 only - Student训练使用带噪声的本体感知
+        self.observations.proprioception_noised = ObservationsCfg.ProprioceptionNoised()
 
         # mid360传感器更新频率 - 10 Hz
         if self.scene.head_mid360_scanner is not None:
