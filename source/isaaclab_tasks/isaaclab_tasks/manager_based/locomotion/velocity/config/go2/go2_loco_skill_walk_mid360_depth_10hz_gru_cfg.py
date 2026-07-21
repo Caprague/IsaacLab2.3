@@ -473,12 +473,39 @@ class EventCfg:
         },
     )
 
-    add_loader_mass = EventTerm(
+    add_nx_loader_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "mass_distribution_params": (0.0, 1.5),
+            "mass_distribution_params": (-1.0, 1.0),
+            "operation": "add",
+        },
+    )
+    add_base_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+            "mass_distribution_params": (-0.5, 0.5),
+            "operation": "add",
+        },
+    )
+    add_mid360_loader_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
+            "mass_distribution_params": (-0.25, 0.25),
+            "operation": "add",
+        },
+    )
+    add_mid360_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
+            "mass_distribution_params": (-0.25, 0.25),
             "operation": "add",
         },
     )
@@ -669,7 +696,7 @@ class RewardsCfg:
             "command_name": "base_velocity",
             "target_height": 0.04,
             "cycle_period": 0.7, 
-            "std": 0.4,
+            "std": 0.3,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
@@ -892,15 +919,15 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
-            interval_range_s=(1.0, 2.0),
+            interval_range_s=(2.0, 4.0),
             params={
                 "command_name": "base_velocity",
                 "vel_diff_threshold": 0.3,
                 "stucked_counter_cnt": 3,
                 "velocity_range": {
-                    "x": (0.75, 1.5), 
+                    "x": (0.5, 1.25), 
                     "y": (0.0, 0.0), 
-                    "z": (0.75, 1.5),
+                    "z": (0.5, 1.25),
                     "roll": (0.0, 0.0), 
                     "pitch": (0.0, 0.0), 
                     "yaw": (0.0, 0.0), 
