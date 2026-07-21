@@ -366,6 +366,42 @@ class Mid360GridPatternCfg(PatternBaseCfg):
 
 
 @configclass
+class HeadProximityPatternCfg(PatternBaseCfg):
+    """Configuration for the head proximity pattern for ray-casting.
+
+    This pattern creates a coarse 3D scanning pattern optimized for near-field obstacle detection
+    around the robot's head. It covers a hemisphere (zenith 0° to 90°) with low resolution,
+    providing a lightweight representation of nearby obstacles.
+
+    The pattern is defined by:
+        width: Number of horizontal rays (360° coverage)
+        height: Number of vertical rays (from top to horizontal plane)
+        min_zenith_deg: Minimum zenith angle (0° = +Z axis, top)
+        max_zenith_deg: Maximum zenith angle (90° = XY plane, horizontal)
+
+    Example usage:
+        pattern_cfg = HeadProximityPatternCfg(
+            width=8,    # 45° per ray horizontally
+            height=4,   # 22.5° per ray vertically
+        )
+    """
+
+    func: Callable = patterns.head_proximity_pattern
+
+    width: int = 8
+    """Number of horizontal rays. Defaults to 8 (45° per pixel)."""
+
+    height: int = 4
+    """Number of vertical rays. Defaults to 4."""
+
+    min_zenith_deg: float = 0.0
+    """Minimum zenith angle in degrees. Defaults to 0° (+Z axis, top)."""
+
+    max_zenith_deg: float = 90.0
+    """Maximum zenith angle in degrees. Defaults to 90° (XY plane, horizontal)."""
+
+
+@configclass
 class BoxGridPatternCfg(PatternBaseCfg):
     """Configuration for the box grid pattern for ray-casting.
 

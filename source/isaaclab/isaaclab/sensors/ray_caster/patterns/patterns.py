@@ -305,6 +305,46 @@ def mid360_grid_pattern(cfg: patterns_cfg.Mid360GridPatternCfg, device: str) -> 
     return ray_starts, ray_directions
 
 
+def head_proximity_pattern(cfg: patterns_cfg.HeadProximityPatternCfg, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    """A coarse hemisphere scanning pattern for near-field obstacle detection around the robot's head.
+
+    This pattern creates a low-resolution 3D scanning pattern optimized for detecting nearby
+    obstacles around the robot's head. It covers a hemisphere from the top (+Z axis) to the
+    horizontal plane (XY plane), providing a lightweight representation of surrounding obstacles.
+
+    The pattern generates rays using a regular grid in spherical coordinates:
+        - Azimuth: 0 to 2π (full 360° horizontal coverage)
+        - Zenith: min_zenith_deg to max_zenith_deg (vertical coverage from top to horizontal)
+
+    Args:
+        cfg: The configuration instance for the pattern.
+        device: The device to create the pattern on.
+
+    Returns:
+        The starting positions and directions of the rays. Shape is (num_rays, 3) for both tensors.
+    """
+    azimuth = torch.linspace(0, 2 * torch.pi, cfg.width, device=device)
+    zenith = torch.linspace(
+        torch.deg2rad(torch.tensor(cfg.max_zenith_deg, device=device)),
+        torch.deg2rad(torch.tensor(cfg.min_zenith_deg, device=device)),
+        cfg.height,
+        device=device,
+    )
+
+    az_grid, ze_grid = torch.meshgrid(azimuth, zenith, indexing="xy")
+    az_grid = az_grid.flatten()
+    ze_grid = ze_grid.flatten()
+
+    x = torch.sin(ze_grid) * torch.cos(az_grid)
+    y = torch.sin(ze_grid) * torch.sin(az_grid)
+    z = torch.cos(ze_grid)
+
+    ray_directions = torch.stack([x, y, z], dim=1)
+    ray_starts = torch.zeros_like(ray_directions)
+
+    return ray_starts, ray_directions
+
+
 def box_grid_pattern(cfg: patterns_cfg.BoxGridPatternCfg, device: str) -> tuple[torch.Tensor, torch.Tensor]:
     """A 3D box grid pattern for ray casting with multi-face sampling.
 
