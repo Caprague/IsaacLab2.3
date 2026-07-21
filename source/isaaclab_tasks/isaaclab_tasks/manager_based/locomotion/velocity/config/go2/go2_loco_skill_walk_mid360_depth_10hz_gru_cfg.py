@@ -641,7 +641,7 @@ class RewardsCfg:
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
-        weight=-10.0,
+        weight=-15.0,
         params={"target_height": 0.29, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
@@ -653,7 +653,7 @@ class RewardsCfg:
     # 站立速度惩罚 [能量]
     stand_still_vel = RewTerm(func=mdp.stand_still_vel, weight=-0.025, params={"command_name": "base_velocity"})
     # 关节力矩惩罚 [能量]
-    joint_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-0.0003)
+    joint_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-0.0002)
     # 关节加速度惩罚 [平滑]
     joint_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-1.0e-7)
     # 基座速度突变惩罚 [平滑]
@@ -688,21 +688,6 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
         }
     )
-    # 抬腿高度奖励 [任务]
-    feet_swing = RewTerm(
-        func=mdp.feet_swing,
-        weight=2.0,
-        params={
-            "command_name": "base_velocity",
-            "target_height": 0.04,
-            "cycle_period": 0.7, 
-            "std": 0.3,
-            "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
-            "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
-            "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
-            "RR_foot_sensor_cfg": SceneEntityCfg("RR_foot_height_scanner"),
-        }
-    )
     # feet 滞空时间奖/惩 [姿态]
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
@@ -716,7 +701,7 @@ class RewardsCfg:
     # feet slide
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.15,
+        weight=-0.03,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
@@ -743,7 +728,7 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.04,
+        weight=-0.02,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
     )
     # 踏足边缘惩罚
@@ -764,7 +749,7 @@ class RewardsCfg:
     # 接触惩罚 [姿态]
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-0.25,
+        weight=-0.1,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
