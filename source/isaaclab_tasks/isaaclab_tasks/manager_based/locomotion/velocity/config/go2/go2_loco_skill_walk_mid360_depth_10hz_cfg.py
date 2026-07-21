@@ -343,13 +343,6 @@ class ObservationsCfg:
             scale=10.0,
             clip=(-0.0, 1.5),
         )
-        # 头部近场障碍物距离（教师阶段特权观测）
-        head_proximity = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("head_proximity_scanner"), "offset": 0.0},
-            scale=5.0,
-            clip=(0.0, 1.0),
-        )
 
         def __post_init__(self):
             self.enable_corruption = False  # No Noise
@@ -357,6 +350,24 @@ class ObservationsCfg:
             self.history_length = 3
 
     privileged: Privileged = Privileged()
+
+
+    @configclass
+    class HeadProximity(ObsGroup):
+        # 头部近场障碍物距离（教师阶段特权观测）
+        head_proximity = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("head_proximity_scanner"), "offset": 0.0},
+            scale=5.0,
+            clip=(0.0, 1.0),
+        )
+        
+        def __post_init__(self):
+            self.enable_corruption = False  # No Noise
+            self.concatenate_terms = True
+            self.history_length = 1
+            
+    headProximity: HeadProximity = HeadProximity()
 
 
     # Student Observation Groups -----------------------------------------------------------------------------

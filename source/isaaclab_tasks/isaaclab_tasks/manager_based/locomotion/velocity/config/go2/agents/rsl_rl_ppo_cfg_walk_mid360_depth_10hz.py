@@ -30,8 +30,8 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
             raise ValueError(f"Unknown stage: {self.env_stage}, choose from: stage1, stage2")
    
     obs_groups = {
-        "policy": ["proprioception", "mapScans", "privileged"],
-        "critic": ["proprioception", "mapScans", "privileged"],
+        "policy": ["proprioception", "mapScans", "privileged", "headProximity"],
+        "critic": ["proprioception", "mapScans", "privileged", "headProximity"],
     }
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

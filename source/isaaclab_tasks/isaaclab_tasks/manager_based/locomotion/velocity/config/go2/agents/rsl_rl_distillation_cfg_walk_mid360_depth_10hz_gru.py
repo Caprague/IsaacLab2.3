@@ -20,7 +20,7 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"
     obs_groups = {
         "policy": ["proprioception_noised", "mid360_depth"],
-        "teacher": ["proprioception", "mapScans", "privileged"],
+        "teacher": ["proprioception", "mapScans", "privileged", "headProximity"],
     }
     policy = RslRlDistillationStudentTeacherDepthImageCfg(
         init_noise_std=0.05,
