@@ -681,7 +681,7 @@ class RewardsCfg:
     # 步态奖励
     trot_gait = RewTerm(
         func=mdp.trot_gait, 
-        weight=2.0,
+        weight=1.0,
         params={
             "command_name": "base_velocity", 
             "cycle_period": 0.7,
