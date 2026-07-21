@@ -685,7 +685,7 @@ class RewardsCfg:
         params={
             "command_name": "base_velocity", 
             "cycle_period": 0.7,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
         }
     )
     # feet 滞空时间奖/惩 [姿态]

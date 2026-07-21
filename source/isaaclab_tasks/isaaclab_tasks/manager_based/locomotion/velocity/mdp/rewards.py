@@ -555,18 +555,13 @@ def trot_gait(
     stance_mask[:, 0] = (phase < 0.5).float()
     stance_mask[:, 1] = (phase > 0.5).float()
 
-    # compute reward
-    reward_mask = (contact_mask[:, 0] == contact_mask[:, 3]) & \
-                  (contact_mask[:, 1] == contact_mask[:, 2]) & \
-                  (contact_mask[:, 0] == stance_mask[:, 0]) & \
-                  (contact_mask[:, 1] == stance_mask[:, 1])
+    correct_count = (contact_mask[:, 0] == stance_mask[:, 0]).float() + \
+                    (contact_mask[:, 1] == stance_mask[:, 1]).float() + \
+                    (contact_mask[:, 3] == stance_mask[:, 0]).float() + \
+                    (contact_mask[:, 2] == stance_mask[:, 1]).float()
+    reward = correct_count / 4.0
 
-    # print(f"contact_forces : {net_contact_forces[:, 0, sensor_cfg.body_ids, 2]}")
-    # print(f"contact_mask : {contact_mask}")
-    # print(f"stance_mask : {stance_mask}")
-    # print(f"reward_mask : {reward_mask}")
-
-    return reward_mask.float() * is_command_active
+    return reward * is_command_active
 
 
 def trot_gait_vel(
