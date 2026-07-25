@@ -684,11 +684,11 @@ class RewardsCfg:
         weight=-50.0,
         params={"collision_distance": 0.05},
     )
-    # feet 接触力惩罚
+    # feet 接触力惩罚（阈值为正常动态峰值之上，仅抑制过度冲击）
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.08,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
+        weight=-0.04,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
     undesired_contacts_head = None
