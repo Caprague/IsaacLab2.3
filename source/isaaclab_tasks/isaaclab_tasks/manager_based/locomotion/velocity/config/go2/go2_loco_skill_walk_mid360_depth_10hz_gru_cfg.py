@@ -985,7 +985,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # 路径映射 - 根据environment自动切换
         paths = {
             "local": {
-                "mid360_csv": "/home/gms/Isaac/IsaacLab2.3/IsaacLab/User/ScanCSV/Mid360/mid360.csv",
+                "mid360_csv": "/home/gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
             },
             "server": {
                 "mid360_csv": "/home/ls_gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",

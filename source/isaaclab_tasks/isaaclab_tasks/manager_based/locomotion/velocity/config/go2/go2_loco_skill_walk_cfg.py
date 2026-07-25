@@ -30,8 +30,8 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 ##
 # Pre-defined configs - Rough Terrain
 ##
-from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_S1_CFG  # isort: skip
-from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_S2_CFG  # isort: skip
+from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_EASY_CFG  # isort: skip
+from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_HARD_CFG  # isort: skip
 
 ##
 # Pre-defined configs - Unitree Go2
@@ -51,7 +51,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=SKILL_WALK_PLUS_TERRAINS_S2_CFG,
+        terrain_generator=SKILL_WALK_PLUS_TERRAINS_HARD_CFG,
         max_init_terrain_level=5,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -86,7 +86,15 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    # 基座高度检测器
+    height_scanner_lf = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        max_distance=100.0,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
     base_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
@@ -96,7 +104,6 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    # 足端高度检测器
     FL_foot_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
@@ -130,43 +137,6 @@ class MySceneCfg(InteractiveSceneCfg):
         max_distance=100.0,
         ray_alignment="yaw",
         pattern_cfg=patterns.SingleRayPatternCfg(direction=(0.0, 0.0, -1.0)),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
-    # 足端边缘检测器
-    FL_foot_edge_detecter = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
-    FR_foot_edge_detecter = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
-    RL_foot_edge_detecter = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
-    RR_foot_edge_detecter = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        max_distance=100.0,
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.035, size=(0.07, 0.07)),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
@@ -378,24 +348,24 @@ class ObservationsCfg:
     @configclass
     class MapScansNoised(ObsGroup):
         # 高度扫描
-        height_scan = ObsTerm(
+        height_scan_low_freq = ObsTerm(
             func=mdp.height_scan_delay,
             params={
-                "sensor_cfg": SceneEntityCfg("height_scanner"), 
+                "sensor_cfg": SceneEntityCfg("height_scanner_lf"), 
                 "offset": 0.0,
-                "delay_range": (0, 15),                     # 0.02 * 15 = 0.3 s
+                "delay_range": (0, 10),  # 0.02 * 10 = 0.2 s
                 "resample_interval_range": (0.5, 10.0),
-                "dt": 0.02,                                 # 50 hz
-                "downsample_freq_scale": 1,                 # 50 / 1 = 50 hz
+                "dt": 0.02,     # 50 hz
+                "downsample_freq_scale": 2, # 50 / 2 = 25 hz
             },
             clip=(-1.5, 1.5),
             scale=2.0,
             noise=NoiseModelWithPeriodicBiasCfg(
                 noise_cfg=Unoise(operation="add", n_min=-0.05, n_max=0.05),
-                bias_noise_cfg=Unoise(operation="abs", n_min=-0.05, n_max=0.05),
+                bias_noise_cfg=Unoise(operation="abs", n_min=-0.1, n_max=0.1),
                 sample_bias_per_component=False,
                 bias_resample_interval=(0.5, 10.0),
-                dt=0.02,                                    # 50 hz
+                dt=0.02,        # 50 hz
             )
         )
 
@@ -587,7 +557,7 @@ class RewardsCfg:
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
         weight=-10.0,
-        params={"target_height": 0.3, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
+        params={"target_height": 0.32, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
     default_stand_pos = RewTerm(
@@ -670,7 +640,7 @@ class RewardsCfg:
     # feet 垂直面碰撞惩罚
     feet_stumble = RewTerm(
         func=mdp.feet_stumble,
-        weight=-1.0,
+        weight=-0.5,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     # feet 同侧足端安全距离惩罚 [姿态]
@@ -688,28 +658,13 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.04,
+        weight=-0.08,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
-    )
-    # 踏足边缘惩罚
-    foot_edge = RewTerm(
-        func=mdp.foot_edge_contact,
-        weight=-1.0,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), 
-            "contact_threshold": 5.0,
-            "FL_foot_edge_detecter": SceneEntityCfg("FL_foot_edge_detecter"),
-            "FR_foot_edge_detecter": SceneEntityCfg("FR_foot_edge_detecter"),
-            "RL_foot_edge_detecter": SceneEntityCfg("RL_foot_edge_detecter"),
-            "RR_foot_edge_detecter": SceneEntityCfg("RR_foot_edge_detecter"),
-            "height_threshold": 0.5,
-            "cnt_threshold": 1,
-        },
     )
     # 接触惩罚 [姿态]
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-10.0,
+        weight=-5.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
@@ -795,12 +750,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
         # 修改传感器更新频率
         # 我们根据最小更新周期（物理更新周期）勾选所有传感器
-        if self.scene.contact_forces is not None:                   # 接触力传感器
-            self.scene.contact_forces.update_period = self.sim.dt   # 200 Hz
-        if self.scene.base_imu is not None:                         # IMU
-            self.scene.base_imu.update_period = self.sim.dt         # 200 Hz
         if self.scene.height_scanner is not None:  # 高度扫描仪
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.height_scanner_lf is not None:
+            self.scene.height_scanner_lf.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.contact_forces is not None:  # 接触力传感器
+            self.scene.contact_forces.update_period = self.sim.dt  # 200 Hz
+        if self.scene.base_imu is not None:  # IMU
+            self.scene.base_imu.update_period = self.sim.dt  # 200 Hz
         if self.scene.base_height_scanner is not None:  # base 单点高度扫描
             self.scene.base_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.FL_foot_height_scanner is not None:  # FL 足端单点高度扫描
@@ -811,14 +768,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.RL_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.RR_foot_height_scanner is not None:  # RR 足端单点高度扫描
             self.scene.RR_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.FL_foot_edge_detecter is not None:  # FL 足端边缘检测
-            self.scene.FL_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.FR_foot_edge_detecter is not None:  # FR 足端边缘检测
-            self.scene.FR_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.RL_foot_edge_detecter is not None:  # RL 足端边缘检测
-            self.scene.RL_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
-        if self.scene.RR_foot_edge_detecter is not None:  # RR 足端边缘检测
-            self.scene.RR_foot_edge_detecter.update_period = self.decimation * self.sim.dt  # 50 Hz
 
         # 检查地形等级&课程学习是否设定启用
         if getattr(self.curriculum, "terrain_levels", None) is not None:
@@ -845,7 +794,7 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
         self.scene.env_spacing = 2.5
         self.episode_length_s = 30.0
 
-        # 速度指令调整
+        # 限定速度指令
         self.commands.base_velocity.rel_vel_world_envs = 1.0
         self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
@@ -854,18 +803,8 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
         # self.scene.terrain.max_init_terrain_level = None
         # self.scene.terrain.terrain_generator.curriculum = False
 
-        # 可视化调整
-        self.scene.base_height_scanner.debug_vis = False
-        self.scene.FL_foot_height_scanner.debug_vis = False
-        self.scene.FR_foot_height_scanner.debug_vis = False
-        self.scene.RL_foot_height_scanner.debug_vis = False
-        self.scene.RR_foot_height_scanner.debug_vis = False
-        self.scene.FL_foot_edge_detecter.debug_vis = False
-        self.scene.FR_foot_edge_detecter.debug_vis = False
-        self.scene.RL_foot_edge_detecter.debug_vis = False
-        self.scene.RR_foot_edge_detecter.debug_vis = False
-
-        # 事件设定调整
+        # 移除随机推力事件
+        self.events.base_external_force_torque = None
         self.events.push_robot = None
-        self.events.add_base_mass.mass_distribution_params = (0.0, 3.0)
+        self.events.add_base_mass.mass_distribution_params = (1.0, 3.0)
 
