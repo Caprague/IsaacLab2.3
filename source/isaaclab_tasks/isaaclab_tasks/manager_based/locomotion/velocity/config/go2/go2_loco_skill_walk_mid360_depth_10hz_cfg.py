@@ -691,7 +691,7 @@ class RewardsCfg:
     # feet slide
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.15,
+        weight=-0.075,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
@@ -700,7 +700,7 @@ class RewardsCfg:
     # feet 垂直面碰撞惩罚
     feet_stumble = RewTerm(
         func=mdp.feet_stumble,
-        weight=-0.5,
+        weight=-0.05,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     # feet 同侧足端安全距离惩罚 [姿态]
