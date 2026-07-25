@@ -478,8 +478,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "mass_distribution_params": (-1.0, 1.0),
-            "operation": "add",
+            "mass_distribution_params": (0.0, 2.0),
+            "operation": "abs",
         },
     )
     add_base_mass = EventTerm(
@@ -496,8 +496,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
-            "mass_distribution_params": (-0.25, 0.25),
-            "operation": "add",
+            "mass_distribution_params": (0.0, 0.5),
+            "operation": "abs",
         },
     )
     add_mid360_mass = EventTerm(
@@ -776,7 +776,7 @@ class RewardsCfg:
     # 接触惩罚 [姿态]
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-5.0,
+        weight=-0.5,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
