@@ -1,7 +1,7 @@
 # 用户变更日志
 <!-- 按时间倒序排列，最新修改在最顶部 -->
 
-## v0.1.4 (2026-07-20)
+## v0.1.4 (2026-07-20 ~ 07-25)
 
 ### 新增功能
 
@@ -15,9 +15,48 @@
 - **深度图上下颠倒**：修复 `mid360_grid_pattern` 函数中 `torch.meshgrid` 参数顺序错误，改为 `torch.meshgrid(zenith, azimuth, indexing="xy")` 确保输出格式与真实模式一致（行优先）
 - **深度图截断逻辑**：统一 `mid360_structured_depth_image` 的距离截断规则，超出max_range_m和低于min_range_m的点均设为0
 - **inf值处理**：聚合后inf值截断到max_range_m
+- **IsaacSim 5.1 暂停/恢复后机器人可视化冻结**（重要修复）：
+
+  **问题现象**：在 IsaacSim 5.1 + IsaacLab 2.3 环境下，运行 `play.py` 时通过 GUI 暂停仿真后恢复，机器人模型的可视化网格冻结在原地不再更新，但物理仿真仍在正常运行。控制台持续输出 `FabricManager::initializePointInstancer mismatched prototypes on point instancer: /Visuals/Command/velocity_current` 和 `/Visuals/Command/velocity_goal` 警告。
+
+  **根因分析**：PhysX fabric 107.3.21+（随 Isaac Sim 5.1 发布）存在回归 bug。FabricManager 在首次播放时会触发 `FabricManager::resume:rigidBodyInitialization:writeToFabric` 将关节体（articulation）的初始位姿写入 fabric 同步层。但在后续的暂停/恢复周期中，FabricManager 跳过了此写入步骤，导致 fabric 中存储的变换数据过期，Hydra 渲染器无法获取最新的关节体位姿，表现为机器人网格视觉冻结。此问题在 Isaac Sim 5.0 中不存在，属于 5.1 版本回归。
+
+  **修复机理**：在 `SimulationContext.step()` 的暂停等待循环退出后（即用户点击恢复时），调用新增的 `_re_sync_fabric()` 方法。该方法通过 `fabric_iface.detach_stage()` 分离当前 USD stage，强制 FabricManager 丢弃内部过期状态；随后通过 `fabric_iface.attach_stage(stage_id)` 重新附加 stage，迫使 FabricManager 执行完整重新初始化流程——包括重新写入所有变换数据到 fabric，使 Hydra 渲染器通过 IFabricHierarchy 缓存变换管线获取正确的位姿。
+
+  **修复代码**（`source/isaaclab/isaaclab/sim/simulation_context.py`）：
+  1. `step()` 方法暂停循环后新增调用：
+  ```python
+  if not self.is_stopped():
+      self._re_sync_fabric()
+  ```
+  2. 新增 `_re_sync_fabric()` 方法：
+  ```python
+  def _re_sync_fabric(self):
+      if self._fabric_iface is None:
+          return
+      stage = self.stage
+      if stage is None:
+          return
+      stage_id = UsdUtils.StageCache.Get().GetId(stage).ToLongInt()
+      if stage_id <= 0:
+          return
+      try:
+          self._fabric_iface.detach_stage()
+      except Exception:
+          logger.warning("Failed to detach fabric stage during re-sync.")
+          return
+      try:
+          self._fabric_iface.attach_stage(stage_id)
+          self._update_fabric(0.0, 0.0)
+      except Exception:
+          logger.warning("Failed to re-attach fabric stage after pause/resume.")
+  ```
+
+  **上游参考**：[IsaacLab #4279](https://github.com/isaac-sim/IsaacLab/issues/4279)、[PR #5178](https://github.com/isaac-sim/IsaacLab/pull/5178)
 
 ### 修改文件
 
+- `source/isaaclab/isaaclab/sim/simulation_context.py` - 新增 `_re_sync_fabric()` 方法，在暂停恢复时 detach/attach USD stage 强制 FabricManager 重新初始化，修复机器人可视化冻结问题
 - `source/isaaclab/isaaclab/envs/mdp/observations.py` - 添加 `mid360_grid_depth_image` 函数，完善 `mid360_structured_depth_image` 的截断、填充逻辑，使用预计算ray_distance
 - `source/isaaclab/isaaclab/sensors/ray_caster/patterns/patterns.py` - 添加 `mid360_grid_pattern` 函数，修复meshgrid参数顺序
 - `source/isaaclab/isaaclab/sensors/ray_caster/patterns/patterns_cfg.py` - 添加 `Mid360GridPatternCfg` 配置类
