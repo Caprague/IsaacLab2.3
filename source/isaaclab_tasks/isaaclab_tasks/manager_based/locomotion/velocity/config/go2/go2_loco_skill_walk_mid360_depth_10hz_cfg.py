@@ -35,7 +35,7 @@ from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_HARD_CFG  # 
 ##
 # Pre-defined configs - Unitree Go2
 ##
-from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG, UNITREE_GO2_SELF_COLIISONS_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG, UNITREE_GO2_SELF_COLIISIONS_CFG  # isort: skip
 
 
 # ============================================================================================================
@@ -827,7 +827,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     def _apply_stage1_config(self):
         """Stage1: 基础训练 - 低速向前，无转向"""
         # === 模型切换：Stage1 使用基础 Go2 模型（与 go2_loco_skill_walk_cfg.py 一致）===
-        self.scene.robot = UNITREE_GO2_SELF_COLIISONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # === 奖励函数对齐：恢复模型差异化项为简单版设定 ===
         self.rewards.undesired_contacts_head = RewTerm(
