@@ -486,8 +486,8 @@ class EventCfg:
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "mass_distribution_params": (-0.5, 0.5),
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "mass_distribution_params": (-1.0, 3.0),
             "operation": "add",
         },
     )
@@ -507,6 +507,18 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
             "mass_distribution_params": (-0.25, 0.25),
             "operation": "add",
+        },
+    )
+    random_base_com = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "com_range": {
+                "x": (-0.05, 0.05),
+                "y": (-0.03, 0.03),
+                "z": (0.00, 0.06),
+            },
         },
     )
     random_loader_com = EventTerm(
@@ -641,8 +653,8 @@ class RewardsCfg:
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
-        weight=-15.0,
-        params={"target_height": 0.29, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
+        weight=-10.0,
+        params={"target_height": 0.32, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
     default_stand_pos = RewTerm(
@@ -680,12 +692,27 @@ class RewardsCfg:
     )
     # 步态奖励
     trot_gait = RewTerm(
-        func=mdp.trot_gait, 
+        func=mdp.trot_gait,
         weight=1.0,
         params={
-            "command_name": "base_velocity", 
+            "command_name": "base_velocity",
             "cycle_period": 0.7,
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
+        }
+    )
+    # 抬腿高度奖励 [任务]
+    feet_swing = RewTerm(
+        func=mdp.feet_swing,
+        weight=2.0,
+        params={
+            "command_name": "base_velocity",
+            "target_height": 0.04,
+            "cycle_period": 0.7,
+            "std": 0.4,
+            "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
+            "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
+            "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
+            "RR_foot_sensor_cfg": SceneEntityCfg("RR_foot_height_scanner"),
         }
     )
     # feet 滞空时间奖/惩 [姿态]
@@ -749,7 +776,7 @@ class RewardsCfg:
     # 接触惩罚 [姿态]
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-0.1,
+        weight=-5.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
@@ -775,6 +802,10 @@ class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    base_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
+    )
     orin_nx_loader_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
@@ -900,22 +931,22 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
 
-        # push_jump: stage1 only - 启用推动帮助机器人脱离卡住状态
+        # push_jump: stage1 only - 推动帮助机器人脱离卡住状态
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
-            interval_range_s=(2.0, 4.0),
+            interval_range_s=(1.0, 2.0),
             params={
                 "command_name": "base_velocity",
                 "vel_diff_threshold": 0.3,
                 "stucked_counter_cnt": 3,
                 "velocity_range": {
-                    "x": (0.5, 1.25), 
-                    "y": (0.0, 0.0), 
-                    "z": (0.5, 1.25),
-                    "roll": (0.0, 0.0), 
-                    "pitch": (0.0, 0.0), 
-                    "yaw": (0.0, 0.0), 
+                    "x": (0.75, 1.5),
+                    "y": (0.0, 0.0),
+                    "z": (0.75, 1.5),
+                    "roll": (0.0, 0.0),
+                    "pitch": (0.0, 0.0),
+                    "yaw": (0.0, 0.0),
                 }
             },
         )
