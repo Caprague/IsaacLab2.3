@@ -441,7 +441,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "mass_distribution_params": (0.0, 2.0),
+            "mass_distribution_params": (0.0, 0.0),
             "operation": "abs",
         },
     )
@@ -459,7 +459,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
-            "mass_distribution_params": (0.0, 0.5),
+            "mass_distribution_params": (0.0, 0.0),
             "operation": "abs",
         },
     )
@@ -468,8 +468,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
-            "mass_distribution_params": (-0.25, 0.25),
-            "operation": "add",
+            "mass_distribution_params": (0.0, 0.0),
+            "operation": "abs",
         },
     )
     random_base_com = EventTerm(
@@ -724,7 +724,7 @@ class RewardsCfg:
     # 接触惩罚 [姿态]
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-0.25,
+        weight=-0.05,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
@@ -939,6 +939,12 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         if self.scene.head_proximity_scanner is not None:
             self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt
 
+        # 质量随机化覆盖：stage2 启用额外负载
+        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
+        self.events.add_nx_loader_mass.params["mass_distribution_params"] = (0.5, 2.0)
+        self.events.add_mid360_mass.params["mass_distribution_params"] = (0.27, 0.27)
+        self.events.add_mid360_loader_mass.params["mass_distribution_params"] = (0.15, 0.35)
+
     def _apply_stage3_config(self):
         """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
         # 禁用头部近场扫描仪（stage3使用完整深度图）
@@ -1037,6 +1043,12 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # mid360传感器更新频率 - 10 Hz
         if self.scene.head_mid360_scanner is not None:
             self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt
+
+        # 质量随机化覆盖：stage3 同 stage2，启用额外负载
+        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
+        self.events.add_nx_loader_mass.params["mass_distribution_params"] = (0.5, 2.0)
+        self.events.add_mid360_mass.params["mass_distribution_params"] = (0.27, 0.27)
+        self.events.add_mid360_loader_mass.params["mass_distribution_params"] = (0.15, 0.35)
 
 
 # ============================================================================================================
