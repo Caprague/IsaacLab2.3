@@ -35,8 +35,8 @@ USD_PATHS = {
         "go2_d435x2": "/home/robot/Isaac/Assets5.1/Assets/Isaac/5.1/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
     },
     "server": {
-        "go2_mid360": "/home/ls_gms/Isaac/Assets5.1/Assets/Isaac/5.1/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
-        "go2_d435x2": "/home/ls_gms/Isaac/Assets5.1/Assets/Isaac/5.1/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
+        "go2_mid360": "/home/ls_gms/Isaac/AssetsSim5.0/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadMid360/go2_orin_nx_mid360.usd",
+        "go2_d435x2": "/home/ls_gms/Isaac/AssetsSim5.0/Isaac/5.0/Isaac/Robots/Unitree/Go2/Go2HeadD435X2/go2_orin_nx_d435x2.usd",
     },
 }
 
