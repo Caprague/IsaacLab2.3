@@ -632,15 +632,29 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
         }
     )
-    # 抬腿高度奖励 [任务]
+    # 抬腿高度奖励 [任务]（期望 5cm，std 收紧至 0.3 略加难度）
     feet_swing = RewTerm(
         func=mdp.feet_swing,
         weight=2.0,
         params={
             "command_name": "base_velocity",
-            "target_height": 0.04,
+            "target_height": 0.05,
             "cycle_period": 0.7,
-            "std": 0.4,
+            "std": 0.3,
+            "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
+            "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
+            "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
+            "RR_foot_sensor_cfg": SceneEntityCfg("RR_foot_height_scanner"),
+        }
+    )
+    # 对角线摆荡对称奖励 [步态] — 鼓励对角足对(FL+RR, FR+RL)摆荡高度一致
+    diagonal_swing_symmetry = RewTerm(
+        func=mdp.diagonal_swing_symmetry,
+        weight=1.5,
+        params={
+            "command_name": "base_velocity",
+            "cycle_period": 0.7,
+            "std": 0.02,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
@@ -684,11 +698,11 @@ class RewardsCfg:
         weight=-50.0,
         params={"collision_distance": 0.05},
     )
-    # feet 接触力惩罚（阈值为正常动态峰值之上，仅抑制过度冲击）
+    # feet 接触力惩罚（阈值为正常动态峰值之上，权重降低一个量级，仅提供温和梯度信号）
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.04,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
+        weight=-0.005,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 150.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
     undesired_contacts_head = None
@@ -914,6 +928,17 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
+        # 步态奖励：切换为严格模式（对角足同步 + 相位匹配，二元 0/1 奖励）
+        self.rewards.trot_gait = RewTerm(
+            func=mdp.trot_gait,
+            weight=1.0,
+            params={
+                "command_name": "base_velocity",
+                "cycle_period": 0.7,
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "strict_mode": True,
+            }
+        )
 
         # === 终止条件：恢复 mid360 特有项 ===
         self.terminations.orin_nx_loader_contact = DoneTerm(
@@ -949,7 +974,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
         self.commands.base_velocity.rel_vel_world_envs = 0.75
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), 
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
             ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
@@ -994,6 +1019,17 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             func=mdp.undesired_contacts,
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
+        )
+        # 步态奖励：切换为严格模式（对角足同步 + 相位匹配，二元 0/1 奖励）
+        self.rewards.trot_gait = RewTerm(
+            func=mdp.trot_gait,
+            weight=1.0,
+            params={
+                "command_name": "base_velocity",
+                "cycle_period": 0.7,
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "strict_mode": True,
+            }
         )
 
         # === 终止条件：恢复 mid360 特有项 ===

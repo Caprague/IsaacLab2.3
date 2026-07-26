@@ -390,6 +390,54 @@ def feet_swing(
     return (reward1 * 0.5 + reward2 * 0.5).view(-1) * is_command_active
 
 
+def diagonal_swing_symmetry(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    cycle_period: float,
+    FL_foot_sensor_cfg: SceneEntityCfg,
+    FR_foot_sensor_cfg: SceneEntityCfg,
+    RL_foot_sensor_cfg: SceneEntityCfg,
+    RR_foot_sensor_cfg: SceneEntityCfg,
+    std: float,
+) -> torch.Tensor:
+    """
+        Reward for diagonal pair symmetry during swing phase.
+
+        In trot gait, diagonal pairs (FL+RR, FR+RL) swing together. This function
+        rewards matched swing heights within each diagonal pair, encouraging the
+        hind legs to mirror their paired front legs.
+    """
+    # Check if command is active
+    is_command_active = torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1   # N
+
+    # Foot heights above ground
+    FL_foot_sensor: RayCaster = env.scene.sensors[FL_foot_sensor_cfg.name]
+    FR_foot_sensor: RayCaster = env.scene.sensors[FR_foot_sensor_cfg.name]
+    RL_foot_sensor: RayCaster = env.scene.sensors[RL_foot_sensor_cfg.name]
+    RR_foot_sensor: RayCaster = env.scene.sensors[RR_foot_sensor_cfg.name]
+    FL_foot_height = FL_foot_sensor.data.pos_w[:, 2].unsqueeze(1) - FL_foot_sensor.data.ray_hits_w[..., 2]
+    FR_foot_height = FR_foot_sensor.data.pos_w[:, 2].unsqueeze(1) - FR_foot_sensor.data.ray_hits_w[..., 2]
+    RL_foot_height = RL_foot_sensor.data.pos_w[:, 2].unsqueeze(1) - RL_foot_sensor.data.ray_hits_w[..., 2]
+    RR_foot_height = RR_foot_sensor.data.pos_w[:, 2].unsqueeze(1) - RR_foot_sensor.data.ray_hits_w[..., 2]
+
+    # mask: 0 = stance, 1 = swing
+    phase = (env.episode_length_buf * env.step_dt) % cycle_period / cycle_period
+    stance_mask = torch.zeros((env.num_envs, 2), device=env.device)
+    stance_mask[:, 0] = (phase < 0.5).float()
+    stance_mask[:, 1] = (phase > 0.5).float()
+    swing_mask = 1 - stance_mask    # N x 2
+
+    # Diagonal pair symmetry: reward matched heights within each pair
+    # Pair 0 (FL+RR): swing during phase 0.5-1.0 → swing_mask[:, 0]=1
+    asymmetry_FL_RR = (FL_foot_height - RR_foot_height).abs()
+    reward1 = torch.exp(-asymmetry_FL_RR / std**2) * (swing_mask[:, 0].unsqueeze(1))
+    # Pair 1 (FR+RL): swing during phase 0.0-0.5 → swing_mask[:, 1]=1
+    asymmetry_FR_RL = (FR_foot_height - RL_foot_height).abs()
+    reward2 = torch.exp(-asymmetry_FR_RL / std**2) * (swing_mask[:, 1].unsqueeze(1))
+
+    return (reward1 * 0.5 + reward2 * 0.5).view(-1) * is_command_active
+
+
 def feet_swing_vel(
     env: ManagerBasedRLEnv,
     command_name: str,
@@ -534,12 +582,20 @@ def trot_gait(
     env: ManagerBasedRLEnv,
     command_name: str,
     cycle_period: float,
-    sensor_cfg: SceneEntityCfg, 
+    sensor_cfg: SceneEntityCfg,
     threshold: float = 5.0,
+    strict_mode: bool = False,
 ) -> torch.Tensor:
     """
-    Calculates a reward based on the number of feet contacts aligning with the gait phase. 
+    Calculates a reward based on the number of feet contacts aligning with the gait phase.
     Rewards or penalizes depending on whether the foot contact matches the expected gait phase.
+
+    Args:
+        strict_mode: If False (default), each foot is judged independently, giving partial
+            credit (0.0–1.0) proportional to the number of feet matching the expected phase.
+            If True, all four conditions must be met simultaneously (diagonal pairs in sync
+            AND matching the phase), yielding a binary 0/1 reward. The strict mode enforces
+            a precise trot gait pattern.
     """
     # Check if command is active
     is_command_active = torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1   # N
@@ -555,11 +611,22 @@ def trot_gait(
     stance_mask[:, 0] = (phase < 0.5).float()
     stance_mask[:, 1] = (phase > 0.5).float()
 
-    correct_count = (contact_mask[:, 0] == stance_mask[:, 0]).float() + \
-                    (contact_mask[:, 1] == stance_mask[:, 1]).float() + \
-                    (contact_mask[:, 3] == stance_mask[:, 0]).float() + \
-                    (contact_mask[:, 2] == stance_mask[:, 1]).float()
-    reward = correct_count / 4.0
+    if strict_mode:
+        # Strict: diagonal pairs must be in sync AND match phase — all-or-nothing
+        # body order: [FL, FR, RL, RR]
+        # FL(0) & RR(3) = diagonal pair 1, FR(1) & RL(2) = diagonal pair 2
+        reward_mask = (contact_mask[:, 0] == contact_mask[:, 3]) & \
+                      (contact_mask[:, 1] == contact_mask[:, 2]) & \
+                      (contact_mask[:, 0] == stance_mask[:, 0]) & \
+                      (contact_mask[:, 1] == stance_mask[:, 1])
+        reward = reward_mask.float()
+    else:
+        # Relaxed: each foot judged independently, partial credit allowed
+        correct_count = (contact_mask[:, 0] == stance_mask[:, 0]).float() + \
+                        (contact_mask[:, 1] == stance_mask[:, 1]).float() + \
+                        (contact_mask[:, 3] == stance_mask[:, 0]).float() + \
+                        (contact_mask[:, 2] == stance_mask[:, 1]).float()
+        reward = correct_count / 4.0
 
     return reward * is_command_active
 
