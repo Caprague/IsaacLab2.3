@@ -645,7 +645,7 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
         }
     )
-    # 抬腿高度奖励 [任务]（期望 5cm，std 收紧至 0.3 略加难度）
+    # 抬腿高度奖励
     feet_swing = RewTerm(
         func=mdp.feet_swing,
         weight=2.0,
@@ -667,7 +667,7 @@ class RewardsCfg:
         params={
             "command_name": "base_velocity",
             "cycle_period": 0.7,
-            "std": 0.02,
+            "std": 0.20,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
