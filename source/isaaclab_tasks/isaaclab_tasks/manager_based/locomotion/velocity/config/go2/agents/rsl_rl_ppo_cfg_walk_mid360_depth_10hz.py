@@ -7,7 +7,7 @@ from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlSymmetryCfg
 
-from isaaclab_tasks.manager_based.locomotion.velocity.mdp.symmetry import go2_skill_walk
+from isaaclab_tasks.manager_based.locomotion.velocity.mdp.symmetry import go2_mid360_teacher_walk
 
 
 @configclass
@@ -58,7 +58,7 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         rnd_cfg=None,
         symmetry_cfg=RslRlSymmetryCfg(
             use_data_augmentation=True, 
-            data_augmentation_func=go2_skill_walk.compute_symmetric_states,
+            data_augmentation_func=go2_mid360_teacher_walk.compute_symmetric_states,
             use_mirror_loss=True,
             mirror_loss_coeff=0.1,
         ),

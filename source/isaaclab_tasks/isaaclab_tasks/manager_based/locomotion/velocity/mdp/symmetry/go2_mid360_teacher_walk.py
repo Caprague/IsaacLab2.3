@@ -4,17 +4,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 
-"""Functions to specify left-right symmetry for Go2 skill-walk teacher-stage observations.
+"""Functions to specify left-right symmetry for Go2 Mid360 teacher-stage observations.
 
-This module handles the 3 observation groups used by ``go2_loco_skill_walk_cfg.py``:
+This module handles the 4 observation groups used by the Mid360 config's teacher policy:
     - proprioception (history=5, 47 dims/frame × 5 = 235 total)
     - mapScans (history=1, 187 total)
     - privileged (history=3, 18 dims/frame × 3 = 54 total)
+    - headProximity (history=1, 32 total)
 
-Observation layout is identical to ``go2_mid360_teacher_walk.py`` minus the ``headProximity`` group.
-
-Transformations operate per-frame to be robust to the underlying observation storage order
-(concatenate_terms=True + history_length: each group = [frame_0, frame_1, ..., frame_{H-1}]).
+Observation layout (concatenate_terms=True + history_length):
+    Each group is a flat tensor of [frame_0, frame_1, ..., frame_{H-1}],
+    where each frame is the concatenation of all terms for that time step.
+    Transformations operate per-frame to be robust to the underlying storage order.
 """
 
 from __future__ import annotations
@@ -72,6 +73,12 @@ def compute_symmetric_states(
             obs["privileged"]
         )
 
+        # --- headProximity (history=1, 32 dims) ---
+        obs_aug["headProximity"][:batch_size] = obs["headProximity"][:]
+        obs_aug["headProximity"][batch_size:] = _transform_headProximity_left_right(
+            obs["headProximity"]
+        )
+
     else:
         obs_aug = None
 
@@ -95,9 +102,12 @@ def compute_symmetric_states(
 #   | 0-1  |  |  2-4  |  | 5-7 |  | 8-10 |  |   11-22   |  |   23-34   |  |  35-46  |
 #
 # Phase negation:
-#   In trot gait, left-right mirror advances phase by half a cycle:
-#     φ' = (φ + 0.5) mod 1.0
-#     sin(2π·φ') = -sin(2πφ),  cos(2π·φ') = -cos(2πφ)
+#   In trot gait, diagonal pair 0 (FL+RR) and pair 1 (FR+RL) alternate.
+#   Under left-right mirror (FL↔FR, RL↔RR), the pairs swap roles, advancing
+#   the phase by half a cycle: φ' = (φ + 0.5) mod 1.0.
+#     sin(2π·φ') = sin(2πφ + π) = -sin(2πφ)
+#     cos(2π·φ') = cos(2πφ + π) = -cos(2πφ)
+#   Therefore both sin and cos are negated.
 # ============================================================================================
 
 PROPRIO_DIMS_PER_FRAME = 47
@@ -206,6 +216,24 @@ def _transform_privileged_left_right(obs: torch.Tensor) -> torch.Tensor:
     ).reshape(B, n_steps, 4)
 
     return data.reshape(obs.shape)
+
+
+# ============================================================================================
+# HeadProximity: 32 dims (4 zenith rows × 8 azimuth cols)
+#
+# head_proximity_pattern: meshgrid(azimuth(8), zenith(4), "xy") → (4, 8) grid.
+# Flatten is row-major: 4 rows (zenith) of 8 columns (azimuth).
+# Left-right mirror: azimuth φ → -φ → flip columns (dim 2).
+#   az = linspace(0, 2π, 8): [0, π/4, π/2, ..., 2π]
+#   Simple flip gives [2π, ..., π/2, π/4, 0]. az=0 and az=2π are the same
+#   physical direction (forward), so the simple flip is physically correct.
+# ============================================================================================
+
+def _transform_headProximity_left_right(obs: torch.Tensor) -> torch.Tensor:
+    """Left-right symmetry for headProximity: flip azimuth (width) columns."""
+    obs = obs.clone()
+    obs[:, :] = obs[:, :].view(-1, 4, 8).flip(dims=[2]).reshape(obs.shape[0], -1)
+    return obs
 
 
 # ============================================================================================
