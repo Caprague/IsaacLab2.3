@@ -594,7 +594,7 @@ class RewardsCfg:
     # xy 轴角速度惩罚 [姿态]
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.1)
     # 姿态不水平惩罚 [姿态]
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
@@ -642,7 +642,8 @@ class RewardsCfg:
         params={
             "command_name": "base_velocity",
             "cycle_period": 0.7,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+            "strict_mode": True,
         }
     )
     # 抬腿高度奖励
@@ -654,20 +655,6 @@ class RewardsCfg:
             "target_height": 0.05,
             "cycle_period": 0.7,
             "std": 0.3,
-            "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
-            "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
-            "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
-            "RR_foot_sensor_cfg": SceneEntityCfg("RR_foot_height_scanner"),
-        }
-    )
-    # 对角线摆荡对称奖励 [步态] — 鼓励对角足对(FL+RR, FR+RL)摆荡高度一致
-    diagonal_swing_symmetry = RewTerm(
-        func=mdp.diagonal_swing_symmetry,
-        weight=1.5,
-        params={
-            "command_name": "base_velocity",
-            "cycle_period": 0.7,
-            "std": 0.20,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
@@ -924,7 +911,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
-        # 步态奖励：切换为严格模式（对角足同步 + 相位匹配，二元 0/1 奖励）
+        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
         self.rewards.trot_gait = RewTerm(
             func=mdp.trot_gait,
             weight=1.0,
@@ -932,7 +919,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                 "command_name": "base_velocity",
                 "cycle_period": 0.7,
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-                "strict_mode": True,
+                "strict_mode": False,
             }
         )
 
@@ -997,7 +984,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
-        # 步态奖励：切换为严格模式（对角足同步 + 相位匹配，二元 0/1 奖励）
+        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
         self.rewards.trot_gait = RewTerm(
             func=mdp.trot_gait,
             weight=1.0,
@@ -1005,7 +992,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                 "command_name": "base_velocity",
                 "cycle_period": 0.7,
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-                "strict_mode": True,
+                "strict_mode": False,
             }
         )
 
