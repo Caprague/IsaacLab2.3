@@ -132,8 +132,21 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    # 头部近场障碍物扫描仪（教师阶段专用）
-    head_proximity_scanner = None
+    # 头部近场障碍物扫描仪（教师阶段专用，三阶段通用）
+    head_proximity_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
+        max_distance=1.0,
+        ray_alignment="base",
+        pattern_cfg=patterns.HeadProximityPatternCfg(
+            width=8,
+            height=4,
+            min_zenith_deg=0.0,
+            max_zenith_deg=90.0,
+        ),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
 
     # 光源
     sky_light = AssetBaseCfg(
@@ -827,6 +840,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.RL_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.RR_foot_height_scanner is not None:  # RR 足端单点高度扫描
             self.scene.RR_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.head_proximity_scanner is not None:   # 头部近场扫描仪
+            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt  # 10 Hz
 
         # 检查地形等级&课程学习是否设定启用
         if getattr(self.curriculum, "terrain_levels", None) is not None:
@@ -887,25 +902,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                 }
             },
         )
-
-        # head_proximity_scanner: stage1 only - 头部近场障碍物检测（教师阶段特权观测）
-        self.scene.head_proximity_scanner = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-            max_distance=1.0,
-            ray_alignment="base",
-            pattern_cfg=patterns.HeadProximityPatternCfg(
-                width=8,
-                height=4,
-                min_zenith_deg=0.0,
-                max_zenith_deg=90.0,
-            ),
-            debug_vis=True,
-            mesh_prim_paths=["/World/ground"],
-        )
-        # 头部接近传感器更新频率 - 10 Hz
-        if self.scene.head_proximity_scanner is not None:
-            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt
 
     def _apply_stage2_config(self):
         """Stage2: 进阶训练 - 全向移动，支持转向"""
@@ -980,25 +976,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
 
-        # head_proximity_scanner: stage2 - 头部近场障碍物检测（教师阶段特权观测）
-        self.scene.head_proximity_scanner = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-            max_distance=1.0,
-            ray_alignment="base",
-            pattern_cfg=patterns.HeadProximityPatternCfg(
-                width=8,
-                height=4,
-                min_zenith_deg=0.0,
-                max_zenith_deg=90.0,
-            ),
-            debug_vis=True,
-            mesh_prim_paths=["/World/ground"],
-        )
-        # 头部接近传感器更新频率 - 10 Hz
-        if self.scene.head_proximity_scanner is not None:
-            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt
-
     def _apply_stage3_config(self):
         """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
         # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
@@ -1063,9 +1040,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
         # base 质量随机化覆盖
         self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
-
-        # 禁用头部近场扫描仪（stage3使用完整深度图）
-        self.scene.head_proximity_scanner = None
 
         # 命令配置 - 全向移动
         self.commands.base_velocity.rel_vel_world_envs = 0.75
