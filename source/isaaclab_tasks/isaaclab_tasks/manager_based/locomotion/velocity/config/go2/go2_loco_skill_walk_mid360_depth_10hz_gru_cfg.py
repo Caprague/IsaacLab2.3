@@ -35,7 +35,7 @@ from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_HARD_CFG  # 
 ##
 # Pre-defined configs - Unitree Go2
 ##
-from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG, UNITREE_GO2_SELF_COLIISIONS_CFG  # isort: skip
 
 
 # ============================================================================================================
@@ -132,8 +132,21 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    # 头部近场障碍物扫描仪（教师阶段专用）
-    head_proximity_scanner = None
+    # 头部近场障碍物扫描仪（教师阶段专用，三阶段通用）
+    head_proximity_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
+        max_distance=1.0,
+        ray_alignment="base",
+        pattern_cfg=patterns.HeadProximityPatternCfg(
+            width=8,
+            height=4,
+            min_zenith_deg=0.0,
+            max_zenith_deg=90.0,
+        ),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
 
     # 光源
     sky_light = AssetBaseCfg(
@@ -436,15 +449,8 @@ class EventCfg:
         },
     )
 
-    add_nx_loader_mass = EventTerm(
-        func=mdp.randomize_rigid_body_mass,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "mass_distribution_params": (0.0, 0.0),
-            "operation": "abs",
-        },
-    )
+    # 模型差异化项，由 _apply_stageX_config 设定
+    add_nx_loader_mass = None
     add_base_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
@@ -454,24 +460,10 @@ class EventCfg:
             "operation": "add",
         },
     )
-    add_mid360_loader_mass = EventTerm(
-        func=mdp.randomize_rigid_body_mass,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
-            "mass_distribution_params": (0.0, 0.0),
-            "operation": "abs",
-        },
-    )
-    add_mid360_mass = EventTerm(
-        func=mdp.randomize_rigid_body_mass,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
-            "mass_distribution_params": (0.0, 0.0),
-            "operation": "abs",
-        },
-    )
+    # 模型差异化项，由 _apply_stageX_config 设定
+    add_mid360_loader_mass = None
+    # 模型差异化项，由 _apply_stageX_config 设定
+    add_mid360_mass = None
     random_base_com = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
@@ -480,22 +472,12 @@ class EventCfg:
             "com_range": {
                 "x": (-0.05, 0.05),
                 "y": (-0.03, 0.03),
-                "z": (0.00, 0.06),
+                "z": (0.00, 0.12),
             },
         },
     )
-    random_loader_com = EventTerm(
-        func=mdp.randomize_rigid_body_com,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-            "com_range": {
-                "x": (-0.015, 0.015),
-                "y": (-0.015, 0.015),
-                "z": (0.00, 0.04),
-            },
-        },
-    )
+    # 模型差异化项，由 _apply_stageX_config 设定
+    random_loader_com = None
     mul_hip_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
@@ -612,7 +594,7 @@ class RewardsCfg:
     # xy 轴角速度惩罚 [姿态]
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.1)
     # 姿态不水平惩罚 [姿态]
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
@@ -660,18 +642,19 @@ class RewardsCfg:
         params={
             "command_name": "base_velocity",
             "cycle_period": 0.7,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+            "strict_mode": True,
         }
     )
-    # 抬腿高度奖励 [任务]
+    # 抬腿高度奖励
     feet_swing = RewTerm(
         func=mdp.feet_swing,
         weight=2.0,
         params={
             "command_name": "base_velocity",
-            "target_height": 0.04,
+            "target_height": 0.05,
             "cycle_period": 0.7,
-            "std": 0.4,
+            "std": 0.3,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
@@ -691,7 +674,7 @@ class RewardsCfg:
     # feet slide
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.075,
+        weight=-0.15,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
@@ -700,7 +683,7 @@ class RewardsCfg:
     # feet 垂直面碰撞惩罚
     feet_stumble = RewTerm(
         func=mdp.feet_stumble,
-        weight=-0.05,
+        weight=-0.5,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     # feet 同侧足端安全距离惩罚 [姿态]
@@ -715,18 +698,14 @@ class RewardsCfg:
         weight=-50.0,
         params={"collision_distance": 0.05},
     )
-    # feet 接触力惩罚
+    # feet 接触力惩罚（阈值为正常动态峰值之上，权重降低一个量级，仅提供温和梯度信号）
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.08,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
+        weight=-0.005,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 150.0},
     )
-    # 接触惩罚 [姿态]
-    undesired_contacts_head = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-0.05,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
-    )
+    # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
+    undesired_contacts_head = None
     # 接触惩罚 [姿态]
     undesired_contacts_thigh = RewTerm(
         func=mdp.undesired_contacts,
@@ -754,10 +733,8 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
-    orin_nx_loader_contact = DoneTerm(
-        func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
-    )
+    # 模型差异化项，由 _apply_stageX_config 设定
+    orin_nx_loader_contact = None
 
 
 # ============================================================================================================
@@ -850,6 +827,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.RL_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
         if self.scene.RR_foot_height_scanner is not None:  # RR 足端单点高度扫描
             self.scene.RR_foot_height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
+        if self.scene.head_proximity_scanner is not None:   # 头部近场扫描仪
+            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt  # 10 Hz
 
         # 检查地形等级&课程学习是否设定启用
         if getattr(self.curriculum, "terrain_levels", None) is not None:
@@ -863,6 +842,26 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
     def _apply_stage1_config(self):
         """Stage1: 基础训练 - 低速向前，无转向"""
+        # === 模型切换：Stage1 使用基础 Go2 模型（与 go2_loco_skill_walk_cfg.py 一致）===
+        self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        # === 奖励函数对齐：恢复模型差异化项为简单版设定 ===
+        self.rewards.undesired_contacts_head = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-5.0,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
+        )
+
+        # === 终止条件：清除 mid360 特有项 ===
+        self.terminations.orin_nx_loader_contact = None
+
+        # === 事件：清除 mid360 特有事件 ===
+        self.events.add_nx_loader_mass = None
+        self.events.add_mid360_loader_mass = None
+        self.events.add_mid360_mass = None
+        self.events.random_loader_com = None
+        # random_base_com z 范围已在 base 中设为 (0.00, 0.12)，与简单版一致
+
         self.commands.base_velocity.rel_vel_world_envs = 1.0
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
             lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), 
@@ -891,64 +890,143 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         )
 
-        # head_proximity_scanner: stage1 only - 头部近场障碍物检测（教师阶段特权观测）
-        self.scene.head_proximity_scanner = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-            max_distance=1.0,
-            ray_alignment="base",
-            pattern_cfg=patterns.HeadProximityPatternCfg(
-                width=8,
-                height=4,
-                min_zenith_deg=0.0,
-                max_zenith_deg=90.0,
-            ),
-            debug_vis=True,
-            mesh_prim_paths=["/World/ground"],
-        )
-        # 头部接近传感器更新频率 - 10 Hz
-        if self.scene.head_proximity_scanner is not None:
-            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt
-
     def _apply_stage2_config(self):
         """Stage2: 进阶训练 - 全向移动，支持转向"""
+        # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
+        self.rewards.feet_slide = RewTerm(
+            func=mdp.feet_slide,
+            weight=-0.075,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            }
+        )
+        self.rewards.feet_stumble = RewTerm(
+            func=mdp.feet_stumble,
+            weight=-0.05,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+        )
+        self.rewards.undesired_contacts_head = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-0.05,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
+        )
+        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
+        self.rewards.trot_gait = RewTerm(
+            func=mdp.trot_gait,
+            weight=1.0,
+            params={
+                "command_name": "base_velocity",
+                "cycle_period": 0.7,
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "strict_mode": False,
+            }
+        )
+
+        # === 终止条件：恢复 mid360 特有项 ===
+        self.terminations.orin_nx_loader_contact = DoneTerm(
+            func=mdp.illegal_contact,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
+        )
+
+        # === 事件：恢复 mid360 特有事件 ===
+        self.events.add_nx_loader_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+                    "mass_distribution_params": (0.5, 2.0), "operation": "abs"},
+        )
+        self.events.add_mid360_loader_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
+                    "mass_distribution_params": (0.15, 0.35), "operation": "abs"},
+        )
+        self.events.add_mid360_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
+                    "mass_distribution_params": (0.27, 0.27), "operation": "abs"},
+        )
+        self.events.random_loader_com = EventTerm(
+            func=mdp.randomize_rigid_body_com, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+                    "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
+        )
+        # COM 随机化：恢复为 mid360 特有 z 范围
+        self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
+        # base 质量随机化覆盖
+        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
+
         self.commands.base_velocity.rel_vel_world_envs = 0.75
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), 
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
             ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
 
-        # head_proximity_scanner: stage2 - 头部近场障碍物检测（教师阶段特权观测）
-        self.scene.head_proximity_scanner = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterLidarCfg.OffsetCfg(pos=(0.3002, 0.0, -0.0816), rot=(0.0, 0.99134, 0.0, 0.13132)),
-            max_distance=1.0,
-            ray_alignment="base",
-            pattern_cfg=patterns.HeadProximityPatternCfg(
-                width=8,
-                height=4,
-                min_zenith_deg=0.0,
-                max_zenith_deg=90.0,
-            ),
-            debug_vis=True,
-            mesh_prim_paths=["/World/ground"],
-        )
-        # 头部接近传感器更新频率 - 10 Hz
-        if self.scene.head_proximity_scanner is not None:
-            self.scene.head_proximity_scanner.update_period = 20 * self.sim.dt
-
-        # 质量随机化覆盖：stage2 启用额外负载
-        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
-        self.events.add_nx_loader_mass.params["mass_distribution_params"] = (0.5, 2.0)
-        self.events.add_mid360_mass.params["mass_distribution_params"] = (0.27, 0.27)
-        self.events.add_mid360_loader_mass.params["mass_distribution_params"] = (0.15, 0.35)
-
     def _apply_stage3_config(self):
         """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
-        # 禁用头部近场扫描仪（stage3使用完整深度图）
-        self.scene.head_proximity_scanner = None
+        # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
+        self.rewards.feet_slide = RewTerm(
+            func=mdp.feet_slide,
+            weight=-0.075,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            }
+        )
+        self.rewards.feet_stumble = RewTerm(
+            func=mdp.feet_stumble,
+            weight=-0.05,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+        )
+        self.rewards.undesired_contacts_head = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-0.05,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
+        )
+        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
+        self.rewards.trot_gait = RewTerm(
+            func=mdp.trot_gait,
+            weight=1.0,
+            params={
+                "command_name": "base_velocity",
+                "cycle_period": 0.7,
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "strict_mode": False,
+            }
+        )
+
+        # === 终止条件：恢复 mid360 特有项 ===
+        self.terminations.orin_nx_loader_contact = DoneTerm(
+            func=mdp.illegal_contact,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
+        )
+
+        # === 事件：恢复 mid360 特有事件 ===
+        self.events.add_nx_loader_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+                    "mass_distribution_params": (0.5, 2.0), "operation": "abs"},
+        )
+        self.events.add_mid360_loader_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
+                    "mass_distribution_params": (0.15, 0.35), "operation": "abs"},
+        )
+        self.events.add_mid360_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
+                    "mass_distribution_params": (0.27, 0.27), "operation": "abs"},
+        )
+        self.events.random_loader_com = EventTerm(
+            func=mdp.randomize_rigid_body_com, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+                    "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
+        )
+        # COM 随机化：恢复为 mid360 特有 z 范围
+        self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
+        # base 质量随机化覆盖
+        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
 
         # 命令配置 - 全向移动
         self.commands.base_velocity.rel_vel_world_envs = 0.75
@@ -1043,12 +1121,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # mid360传感器更新频率 - 10 Hz
         if self.scene.head_mid360_scanner is not None:
             self.scene.head_mid360_scanner.update_period = 20 * self.sim.dt
-
-        # 质量随机化覆盖：stage3 同 stage2，启用额外负载
-        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
-        self.events.add_nx_loader_mass.params["mass_distribution_params"] = (0.5, 2.0)
-        self.events.add_mid360_mass.params["mass_distribution_params"] = (0.27, 0.27)
-        self.events.add_mid360_loader_mass.params["mass_distribution_params"] = (0.15, 0.35)
 
 
 # ============================================================================================================

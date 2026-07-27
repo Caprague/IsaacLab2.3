@@ -14,7 +14,7 @@ from isaaclab_rl.rsl_rl import (
 
 @configclass
 class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
-    num_steps_per_env = 120
+    num_steps_per_env = 60
     max_iterations = 5001
     save_interval = 250
     experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"
@@ -34,7 +34,7 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     algorithm = RslRlDistillationAlgorithmCfg(
         num_learning_epochs=2,
         learning_rate=1.0e-3,
-        gradient_length=15,
+        gradient_length=1,
         optimizer="adam",
         loss_type="mse",
     )
