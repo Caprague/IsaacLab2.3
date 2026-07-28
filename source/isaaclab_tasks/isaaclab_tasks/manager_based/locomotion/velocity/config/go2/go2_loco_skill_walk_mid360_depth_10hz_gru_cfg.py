@@ -170,11 +170,11 @@ class CommandsCfg:
         asset_name="robot",
         resampling_time_range=(10.0, 20.0),
         rel_standing_envs=0.05,
-        rel_vel_world_envs=1.0,
+        rel_vel_world_envs=0.75,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -860,15 +860,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.add_mid360_loader_mass = None
         self.events.add_mid360_mass = None
         self.events.random_loader_com = None
-        # random_base_com z 范围已在 base 中设为 (0.00, 0.12)，与简单版一致
-
-        self.commands.base_velocity.rel_vel_world_envs = 1.0
-        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), 
-            ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
-        )
-        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
-        self.scene.terrain.max_init_terrain_level = 5
 
         # push_jump: stage1 only - 推动帮助机器人脱离卡住状态 (全向速度指令兼容版)
         self.events.push_jump = EventTerm(
@@ -886,49 +877,32 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         )
 
-    def _apply_stage2_config(self):
-        """Stage2: 进阶训练 - 全向移动，支持转向"""
-        # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
+    def _restore_mid360_config(self):
+        """恢复 mid360 特有配置（Stage2/3 共用）：奖励、终止条件、事件、命令。"""
+        # 奖励函数 — mid360 特有值
         self.rewards.feet_slide = RewTerm(
-            func=mdp.feet_slide,
-            weight=-0.075,
-            params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-            }
+            func=mdp.feet_slide, weight=-0.075,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+                    "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot")},
         )
         self.rewards.feet_stumble = RewTerm(
-            func=mdp.feet_stumble,
-            weight=-0.05,
+            func=mdp.feet_stumble, weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
         )
         self.rewards.undesired_contacts_head = RewTerm(
-            func=mdp.undesired_contacts,
-            weight=-0.05,
+            func=mdp.undesired_contacts, weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
-        self.rewards.trot_gait = RewTerm(
-            func=mdp.trot_gait,
-            weight=1.0,
-            params={
-                "command_name": "base_velocity",
-                "cycle_period": 0.7,
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-                "strict_mode": False,
-            }
-        )
-
-        # === 终止条件：恢复 mid360 特有项 ===
+        # 终止条件 — mid360 特有项
         self.terminations.orin_nx_loader_contact = DoneTerm(
             func=mdp.illegal_contact,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
         )
-
-        # === 事件：恢复 mid360 特有事件 ===
+        # 事件 — mid360 特有事件
         self.events.add_nx_loader_mass = EventTerm(
             func=mdp.randomize_rigid_body_mass, mode="startup",
             params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "mass_distribution_params": (0.5, 2.0), "operation": "abs"},
+                    "mass_distribution_params": (1.0, 2.0), "operation": "abs"},
         )
         self.events.add_mid360_loader_mass = EventTerm(
             func=mdp.randomize_rigid_body_mass, mode="startup",
@@ -943,98 +917,25 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.random_loader_com = EventTerm(
             func=mdp.randomize_rigid_body_com, mode="startup",
             params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
+                    "com_range": {"x": (-0.02, 0.02), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
         )
-        # COM 随机化：恢复为 mid360 特有 z 范围
-        self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
+        # COM 随机化 — mid360 特有 z 范围
+        self.events.random_base_com.params["com_range"]["z"] = (-0.06, 0.06)
         # base 质量随机化覆盖
         self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
 
-        self.commands.base_velocity.rel_vel_world_envs = 0.75
-        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
-            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
-        )
-        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
-        self.scene.terrain.max_init_terrain_level = 5
+    def _apply_stage2_config(self):
+        """Stage2: 进阶训练 - 全向移动，支持转向"""
+        self._restore_mid360_config()
 
     def _apply_stage3_config(self):
         """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
-        # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
-        self.rewards.feet_slide = RewTerm(
-            func=mdp.feet_slide,
-            weight=-0.075,
-            params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-            }
-        )
-        self.rewards.feet_stumble = RewTerm(
-            func=mdp.feet_stumble,
-            weight=-0.05,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
-        )
-        self.rewards.undesired_contacts_head = RewTerm(
-            func=mdp.undesired_contacts,
-            weight=-0.05,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
-        )
-        self.rewards.trot_gait = RewTerm(
-            func=mdp.trot_gait,
-            weight=1.0,
-            params={
-                "command_name": "base_velocity",
-                "cycle_period": 0.7,
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-                "strict_mode": False,
-            }
-        )
-
-        # === 终止条件：恢复 mid360 特有项 ===
-        self.terminations.orin_nx_loader_contact = DoneTerm(
-            func=mdp.illegal_contact,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
-        )
-
-        # === 事件：恢复 mid360 特有事件 ===
-        self.events.add_nx_loader_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "mass_distribution_params": (0.5, 2.0), "operation": "abs"},
-        )
-        self.events.add_mid360_loader_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
-                    "mass_distribution_params": (0.15, 0.35), "operation": "abs"},
-        )
-        self.events.add_mid360_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
-                    "mass_distribution_params": (0.27, 0.27), "operation": "abs"},
-        )
-        self.events.random_loader_com = EventTerm(
-            func=mdp.randomize_rigid_body_com, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
-        )
-        # COM 随机化：恢复为 mid360 特有 z 范围
-        self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
-        # base 质量随机化覆盖
-        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
-
-        # 命令配置 - 全向移动
-        self.commands.base_velocity.rel_vel_world_envs = 0.75
-        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), 
-            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
-        )
-        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
-        self.scene.terrain.max_init_terrain_level = 5
+        self._restore_mid360_config()
 
         # 路径映射 - 根据environment自动切换
         paths = {
             "local": {
-                "mid360_csv": "/home/robot/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
+                "mid360_csv": "/home/gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
             },
             "server": {
                 "mid360_csv": "/home/ls_gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
@@ -1129,14 +1030,14 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
 
         # post init of parent
         super().__post_init__()
-
+        
         # 小规模播放
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         self.episode_length_s = 30.0
 
         # 速度指令调整
-        self.commands.base_velocity.rel_vel_world_envs = 1.0
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
         self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
 

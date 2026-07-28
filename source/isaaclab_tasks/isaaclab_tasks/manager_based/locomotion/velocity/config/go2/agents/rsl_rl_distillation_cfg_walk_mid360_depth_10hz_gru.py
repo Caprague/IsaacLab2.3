@@ -16,6 +16,8 @@ from isaaclab_rl.rsl_rl import (
 class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     num_steps_per_env = 60
     max_iterations = 5001
+    teacher_driving = True
+    teacher_driving_switch_iter = 2500
     save_interval = 250
     experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"
     obs_groups = {
