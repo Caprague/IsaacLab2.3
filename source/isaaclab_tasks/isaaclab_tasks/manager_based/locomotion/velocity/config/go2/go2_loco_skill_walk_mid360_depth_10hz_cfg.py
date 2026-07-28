@@ -472,7 +472,7 @@ class EventCfg:
             "com_range": {
                 "x": (-0.05, 0.05),
                 "y": (-0.03, 0.03),
-                "z": (0.00, 0.12),
+                "z": (-0.06, 0.12),
             },
         },
     )
@@ -599,7 +599,7 @@ class RewardsCfg:
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
         weight=-10.0,
-        params={"target_height": 0.32, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
+        params={"target_height": 0.30, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
     default_stand_pos = RewTerm(
@@ -654,7 +654,7 @@ class RewardsCfg:
             "command_name": "base_velocity",
             "target_height": 0.05,
             "cycle_period": 0.7,
-            "std": 0.3,
+            "std": 0.4,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
             "FR_foot_sensor_cfg": SceneEntityCfg("FR_foot_height_scanner"),
             "RL_foot_sensor_cfg": SceneEntityCfg("RL_foot_height_scanner"),
@@ -698,11 +698,11 @@ class RewardsCfg:
         weight=-50.0,
         params={"collision_distance": 0.05},
     )
-    # feet 接触力惩罚（阈值为正常动态峰值之上，权重降低一个量级，仅提供温和梯度信号）
+    # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.005,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 150.0},
+        weight=-0.01,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
     undesired_contacts_head = None
@@ -870,23 +870,19 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
 
-        # push_jump: stage1 only - 推动帮助机器人脱离卡住状态
+        # push_jump: stage1 only - 推动帮助机器人脱离卡住状态 (全向速度指令兼容版)
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
             interval_range_s=(1.0, 2.0),
             params={
                 "command_name": "base_velocity",
-                "vel_diff_threshold": 0.3,
                 "stucked_counter_cnt": 3,
-                "velocity_range": {
-                    "x": (0.75, 1.5),
-                    "y": (0.0, 0.0),
-                    "z": (0.75, 1.5),
-                    "roll": (0.0, 0.0),
-                    "pitch": (0.0, 0.0),
-                    "yaw": (0.0, 0.0),
-                }
+                "z_range": (0.75, 1.5),
+                "lin_diff_threshold": 0.3,
+                "ang_diff_threshold": 0.5,
+                "push_scale": 1.5,
+                "push_scale_ang": 1.5,
             },
         )
 
@@ -911,7 +907,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
-        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
         self.rewards.trot_gait = RewTerm(
             func=mdp.trot_gait,
             weight=1.0,
@@ -984,7 +979,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
-        # 步态奖励：Stage2/3 切换为宽松模式（每足独立判断，允许负载下的自然步态微调）
         self.rewards.trot_gait = RewTerm(
             func=mdp.trot_gait,
             weight=1.0,

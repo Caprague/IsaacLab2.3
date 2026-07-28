@@ -870,23 +870,19 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
         self.scene.terrain.max_init_terrain_level = 5
 
-        # push_jump: stage1 only - 推动帮助机器人脱离卡住状态
+        # push_jump: stage1 only - 推动帮助机器人脱离卡住状态 (全向速度指令兼容版)
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
             interval_range_s=(1.0, 2.0),
             params={
                 "command_name": "base_velocity",
-                "vel_diff_threshold": 0.3,
                 "stucked_counter_cnt": 3,
-                "velocity_range": {
-                    "x": (0.75, 1.5),
-                    "y": (0.0, 0.0),
-                    "z": (0.75, 1.5),
-                    "roll": (0.0, 0.0),
-                    "pitch": (0.0, 0.0),
-                    "yaw": (0.0, 0.0),
-                }
+                "z_range": (0.75, 1.5),
+                "lin_diff_threshold": 0.3,
+                "ang_diff_threshold": 0.5,
+                "push_scale": 1.5,
+                "push_scale_ang": 1.5,
             },
         )
 

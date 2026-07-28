@@ -1074,20 +1074,25 @@ def push_by_setting_velocity(
 def push_when_still_stucked_random(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
-    velocity_range: dict[str, tuple[float, float]],
     command_name: str,
-    vel_diff_threshold: float,
     stucked_counter_cnt: int,
+    z_range: tuple[float, float],
+    lin_diff_threshold: float = 0.3,
+    ang_diff_threshold: float = 0.5,
+    push_scale: float = 1.5,
+    push_scale_ang: float = 1.5,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
-    """Push the asset by setting the root velocity to a random value within the given ranges.
+    """Push the asset in the direction of the commanded velocity when stuck.
 
-    This creates an effect similar to pushing the asset with a random impulse that changes the asset's velocity.
-    It samples the root velocity from the given ranges and sets the velocity into the physics simulation.
+    Detects stuck environments by comparing each component of the commanded velocity
+    (lin_vel_x, lin_vel_y, ang_vel_z, all in body frame) against the actual robot velocity,
+    using independent thresholds for linear and angular components. When an environment is
+    persistently stuck, a push is applied to the stuck components in the direction of the
+    command, plus a mandatory z-axis lift sampled from ``z_range`` to help the robot escape.
 
-    The function takes a dictionary of velocity ranges for each axis and rotation. The keys of the dictionary
-    are ``x``, ``y``, ``z``, ``roll``, ``pitch``, and ``yaw``. The values are tuples of the form ``(min, max)``.
-    If the dictionary does not contain a key, the velocity is set to zero for that axis.
+    The linear push is computed in the body frame and rotated to the world frame via
+    yaw-only rotation before writing into the physics simulation.
     """
     if not hasattr(env, "stucked_counter"):
         env.stucked_counter = torch.zeros(env.num_envs, dtype=torch.int16, device=env.device)
@@ -1095,34 +1100,69 @@ def push_when_still_stucked_random(
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
 
-    # command velocities
-    vel_cmd = torch.norm(env.command_manager.get_command(command_name)[env_ids, :2], dim=1)
-    # asset velocities
-    vel_w = asset.data.root_vel_w[env_ids]
+    # command velocities (body frame): [lin_vel_x, lin_vel_y, ang_vel_z, ...]
+    cmd = env.command_manager.get_command(command_name)[env_ids]
 
-    # detect stucked
-    stucked_mask = torch.abs(torch.norm(vel_w[:, :2], dim=1) - vel_cmd) > vel_diff_threshold
-    # 更新卡住计数器
+    # actual velocities in body frame
+    actual_lin_vel_b = asset.data.root_lin_vel_b[env_ids]  # (N, 3): [lin_x, lin_y, lin_z]
+    actual_ang_vel_b = asset.data.root_ang_vel_b[env_ids]  # (N, 3): [ang_x, ang_y, ang_z]
+
+    # per-component stuck detection
+    stucked_x = torch.abs(cmd[:, 0] - actual_lin_vel_b[:, 0]) > lin_diff_threshold
+    stucked_y = torch.abs(cmd[:, 1] - actual_lin_vel_b[:, 1]) > lin_diff_threshold
+    stucked_z_ang = torch.abs(cmd[:, 2] - actual_ang_vel_b[:, 2]) > ang_diff_threshold
+
+    # an environment is stuck if any component is stuck
+    any_stuck = stucked_x | stucked_y | stucked_z_ang
+    # update stuck counter
     env.stucked_counter[env_ids] = torch.where(
-        stucked_mask,
+        any_stuck,
         env.stucked_counter[env_ids] + 1,
-        0
+        0,
     )
-    # extract still stucked
+    # extract still stuck environments
     still_stucked_mask = env.stucked_counter[env_ids] > stucked_counter_cnt
 
-    # 检查是否真的有环境需要处理
     if not still_stucked_mask.any():
-        return  # 没有环境卡住，直接返回
+        return
 
-    # sample random velocities
-    range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    ranges = torch.tensor(range_list, device=asset.device)
-    random_vel_delta = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], vel_w.shape, device=asset.device)
-    vel_w_to_set = vel_w + still_stucked_mask.unsqueeze(-1) * random_vel_delta
+    # work only with still-stuck environments
+    still_stucked_ids = env_ids[still_stucked_mask]
+    still_cmd = cmd[still_stucked_mask]
+
+    # index into already-computed per-component stuck masks (avoids redundant recomputation)
+    still_stucked_x = stucked_x[still_stucked_mask]
+    still_stucked_y = stucked_y[still_stucked_mask]
+    still_stucked_z_ang = stucked_z_ang[still_stucked_mask]
+
+    # build body-frame push deltas (only for stuck components)
+    body_push_delta = torch.zeros(len(still_stucked_ids), 6, device=env.device)
+
+    # linear push: only push components that are stuck, in the direction of the command
+    body_push_delta[:, 0] = torch.where(still_stucked_x, torch.sign(still_cmd[:, 0]) * push_scale, 0.0)
+    body_push_delta[:, 1] = torch.where(still_stucked_y, torch.sign(still_cmd[:, 1]) * push_scale, 0.0)
+    # angular push (yaw): only push if ang_vel_z is stuck
+    body_push_delta[:, 5] = torch.where(still_stucked_z_ang, torch.sign(still_cmd[:, 2]) * push_scale_ang, 0.0)
+
+    # mandatory z-axis lift (lifts the robot to help escape stuck state)
+    z_noise = math_utils.sample_uniform(
+        z_range[0], z_range[1], (len(still_stucked_ids),), device=env.device
+    )
+    body_push_delta[:, 2] = z_noise
+
+    # convert body-frame linear push to world frame using yaw-only rotation
+    still_root_quat = asset.data.root_quat_w[still_stucked_ids]
+    world_lin_push = math_utils.quat_apply_yaw(still_root_quat, body_push_delta[:, :3])
+
+    # apply push to world-frame velocity
+    vel_w = asset.data.root_vel_w[still_stucked_ids]
+    vel_w_to_set = vel_w.clone()
+    vel_w_to_set[:, :3] += world_lin_push
+    # ang_vel_z is identical in body and world frames (yaw rotation about z-axis)
+    vel_w_to_set[:, 5] += body_push_delta[:, 5]
 
     # set the velocities into the physics simulation
-    asset.write_root_velocity_to_sim(vel_w_to_set, env_ids=env_ids)
+    asset.write_root_velocity_to_sim(vel_w_to_set, env_ids=still_stucked_ids)
 
 
 def reset_root_state_uniform(
