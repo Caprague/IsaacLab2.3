@@ -122,3 +122,9 @@ class RslRlDistillationRunnerCfg(RslRlBaseRunnerCfg):
 
     algorithm: RslRlDistillationAlgorithmCfg = MISSING
     """The algorithm configuration."""
+
+    teacher_driving: bool = False
+    """Whether to use teacher driving for data collection (DAgger-style). Default is False."""
+
+    teacher_driving_switch_iter: int = 0
+    """The iteration number at which driving switches from teacher to student. Default is 0."""
