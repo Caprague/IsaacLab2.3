@@ -861,11 +861,24 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.add_mid360_mass = None
         self.events.random_loader_com = None
 
+        # 初期简单任务设定，主要目标是步态塑形
+        self.commands.base_velocity = mdp.UniformVelocityCommandCfgUser(
+            asset_name="robot",
+            resampling_time_range=(10.0, 20.0),
+            rel_standing_envs=0.05,
+            rel_vel_world_envs=1.0,
+            heading_control_stiffness=0.5,
+            debug_vis=True,
+            ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
+                lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.25, 0.25), ang_vel_z=(0.0, 0.0), heading=(0.0, 0.0)
+            ),
+        )
+
         # push_jump: stage1 only - 推动帮助机器人脱离卡住状态 (全向速度指令兼容版)
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
-            interval_range_s=(1.0, 2.0),
+            interval_range_s=(1.0, 3.0),
             params={
                 "command_name": "base_velocity",
                 "stucked_counter_cnt": 3,
