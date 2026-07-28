@@ -21,7 +21,7 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 
     def __post_init__(self):
         if self.env_stage == "stage1":
-            self.max_iterations = 4001
+            self.max_iterations = 6001
         elif self.env_stage == "stage2":
             self.max_iterations = 6001
         elif self.env_stage == "stage3":

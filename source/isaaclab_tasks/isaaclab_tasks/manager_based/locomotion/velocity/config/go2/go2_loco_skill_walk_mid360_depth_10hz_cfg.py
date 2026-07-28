@@ -170,11 +170,11 @@ class CommandsCfg:
         asset_name="robot",
         resampling_time_range=(10.0, 20.0),
         rel_standing_envs=0.05,
-        rel_vel_world_envs=1.0,
+        rel_vel_world_envs=0.75,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -472,7 +472,7 @@ class EventCfg:
             "com_range": {
                 "x": (-0.05, 0.05),
                 "y": (-0.03, 0.03),
-                "z": (-0.06, 0.12),
+                "z": (-0.00, 0.12),
             },
         },
     )
@@ -889,21 +889,22 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         """恢复 mid360 特有配置（Stage2/3 共用）：奖励、终止条件、事件、命令、地形。"""
         # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
         self.rewards.feet_slide = RewTerm(
-            func=mdp.feet_slide,
-            weight=-0.075,
-            params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-            }
+            func=mdp.feet_slide, weight=-0.075,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+                    "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot")},
         )
         self.rewards.feet_stumble = RewTerm(
-            func=mdp.feet_stumble,
-            weight=-0.05,
+            func=mdp.feet_stumble, weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
         )
+        # feet 接触力惩罚
+        self.rewards.feet_contact_force = RewTerm(
+            func=mdp.contact_forces,
+            weight=-0.02,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 170.0},
+        )
         self.rewards.undesired_contacts_head = RewTerm(
-            func=mdp.undesired_contacts,
-            weight=-0.05,
+            func=mdp.undesired_contacts, weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
         )
 
@@ -1054,14 +1055,14 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
 
         # post init of parent
         super().__post_init__()
-
+        
         # 小规模播放
         self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         self.episode_length_s = 30.0
 
         # 速度指令调整
-        self.commands.base_velocity.rel_vel_world_envs = 1.0
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
         self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
 
