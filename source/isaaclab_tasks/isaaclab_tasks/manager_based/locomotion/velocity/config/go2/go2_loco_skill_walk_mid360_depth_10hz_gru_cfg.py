@@ -701,8 +701,8 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.01,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
+        weight=-0.02,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 150.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
     undesired_contacts_head = None
@@ -888,6 +888,12 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.rewards.feet_stumble = RewTerm(
             func=mdp.feet_stumble, weight=-0.05,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+        )
+        # feet 接触力惩罚
+        self.rewards.feet_contact_force = RewTerm(
+            func=mdp.contact_forces,
+            weight=-0.02,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 170.0},
         )
         self.rewards.undesired_contacts_head = RewTerm(
             func=mdp.undesired_contacts, weight=-0.05,
