@@ -1040,7 +1040,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # 路径映射 - 根据environment自动切换
         paths = {
             "local": {
-                "mid360_csv": "/home/gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
+                "mid360_csv": "/home/robot/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
             },
             "server": {
                 "mid360_csv": "/home/ls_gms/Isaac/IsaacLab2.3/User/ScanCSV/Mid360/mid360.csv",
@@ -1129,12 +1129,12 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
 class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
     def __post_init__(self) -> None:
-        # post init of parent
-        super().__post_init__()
-        
         # 部署播放策略，使用stage3，拟真模式转换Mid360深度图
         self.stage = "stage3"
         self.use_simple_lidar = False
+
+        # post init of parent
+        super().__post_init__()
 
         # 小规模播放
         self.scene.num_envs = 32
