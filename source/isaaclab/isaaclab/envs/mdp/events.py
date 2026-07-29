@@ -1076,11 +1076,9 @@ def push_when_still_stucked_random(
     env_ids: torch.Tensor,
     command_name: str,
     stucked_counter_cnt: int,
-    z_range: tuple[float, float],
+    push_vel_range: dict[str, tuple[float, float]],
     lin_diff_threshold: float = 0.3,
     ang_diff_threshold: float = 0.5,
-    push_scale: float = 1.5,
-    push_scale_ang: float = 1.5,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
     """Push the asset in the direction of the commanded velocity when stuck.
@@ -1089,10 +1087,22 @@ def push_when_still_stucked_random(
     (lin_vel_x, lin_vel_y, ang_vel_z, all in body frame) against the actual robot velocity,
     using independent thresholds for linear and angular components. When an environment is
     persistently stuck, a push is applied to the stuck components in the direction of the
-    command, plus a mandatory z-axis lift sampled from ``z_range`` to help the robot escape.
+    command, with the push magnitude sampled uniformly from the corresponding range in
+    ``push_vel_range``.
+
+    The ``push_vel_range`` dictionary specifies the random range for each velocity component.
+    The keys are ``x``, ``y``, ``z``, ``roll``, ``pitch``, and ``yaw``. The values are tuples
+    of the form ``(min, max)``. If the dictionary does not contain a key, the push is set to
+    zero for that axis.
+
+    * Directional push (in the direction of the command): ``x``, ``y``, ``yaw`` — only applied
+      when that specific component is stuck.
+    * Non-directional push (always applied to stuck environments): ``z``, ``roll``, ``pitch`` —
+      applied regardless of which component triggered the stuck detection.
 
     The linear push is computed in the body frame and rotated to the world frame via
-    yaw-only rotation before writing into the physics simulation.
+    yaw-only rotation before writing into the physics simulation. Angular pushes are
+    rotated to the world frame via the full quaternion rotation.
     """
     if not hasattr(env, "stucked_counter"):
         env.stucked_counter = torch.zeros(env.num_envs, dtype=torch.int16, device=env.device)
@@ -1129,37 +1139,45 @@ def push_when_still_stucked_random(
     # work only with still-stuck environments
     still_stucked_ids = env_ids[still_stucked_mask]
     still_cmd = cmd[still_stucked_mask]
+    n_stuck = len(still_stucked_ids)
 
     # index into already-computed per-component stuck masks (avoids redundant recomputation)
     still_stucked_x = stucked_x[still_stucked_mask]
     still_stucked_y = stucked_y[still_stucked_mask]
     still_stucked_z_ang = stucked_z_ang[still_stucked_mask]
 
-    # build body-frame push deltas (only for stuck components)
-    body_push_delta = torch.zeros(len(still_stucked_ids), 6, device=env.device)
+    # sample random push magnitudes from push_vel_range (same structure as old velocity_range)
+    range_list = [push_vel_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    ranges = torch.tensor(range_list, device=env.device)
+    push_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (n_stuck, 6), device=env.device)
 
-    # linear push: only push components that are stuck, in the direction of the command
-    body_push_delta[:, 0] = torch.where(still_stucked_x, torch.sign(still_cmd[:, 0]) * push_scale, 0.0)
-    body_push_delta[:, 1] = torch.where(still_stucked_y, torch.sign(still_cmd[:, 1]) * push_scale, 0.0)
-    # angular push (yaw): only push if ang_vel_z is stuck
-    body_push_delta[:, 5] = torch.where(still_stucked_z_ang, torch.sign(still_cmd[:, 2]) * push_scale_ang, 0.0)
+    # build body-frame push deltas
+    body_push_delta = torch.zeros(n_stuck, 6, device=env.device)
 
-    # mandatory z-axis lift (lifts the robot to help escape stuck state)
-    z_noise = math_utils.sample_uniform(
-        z_range[0], z_range[1], (len(still_stucked_ids),), device=env.device
-    )
-    body_push_delta[:, 2] = z_noise
+    # linear directional push: only push components that are stuck, in the direction of the command
+    body_push_delta[:, 0] = torch.where(still_stucked_x, torch.sign(still_cmd[:, 0]) * push_samples[:, 0], 0.0)
+    body_push_delta[:, 1] = torch.where(still_stucked_y, torch.sign(still_cmd[:, 1]) * push_samples[:, 1], 0.0)
+    # z-axis lift: non-directional, always applied to stuck environments
+    body_push_delta[:, 2] = push_samples[:, 2]
+
+    # angular non-directional push: roll, pitch — always applied to stuck environments
+    body_push_delta[:, 3] = push_samples[:, 3]
+    body_push_delta[:, 4] = push_samples[:, 4]
+    # angular directional push (yaw): only push if ang_vel_z is stuck
+    body_push_delta[:, 5] = torch.where(still_stucked_z_ang, torch.sign(still_cmd[:, 2]) * push_samples[:, 5], 0.0)
 
     # convert body-frame linear push to world frame using yaw-only rotation
     still_root_quat = asset.data.root_quat_w[still_stucked_ids]
     world_lin_push = math_utils.quat_apply_yaw(still_root_quat, body_push_delta[:, :3])
 
+    # convert body-frame angular push to world frame using full quaternion rotation
+    world_ang_push = math_utils.quat_rotate(still_root_quat, body_push_delta[:, 3:6])
+
     # apply push to world-frame velocity
     vel_w = asset.data.root_vel_w[still_stucked_ids]
     vel_w_to_set = vel_w.clone()
     vel_w_to_set[:, :3] += world_lin_push
-    # ang_vel_z is identical in body and world frames (yaw rotation about z-axis)
-    vel_w_to_set[:, 5] += body_push_delta[:, 5]
+    vel_w_to_set[:, 3:6] += world_ang_push
 
     # set the velocities into the physics simulation
     asset.write_root_velocity_to_sim(vel_w_to_set, env_ids=still_stucked_ids)

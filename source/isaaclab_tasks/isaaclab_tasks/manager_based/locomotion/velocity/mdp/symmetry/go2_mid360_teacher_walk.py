@@ -6,11 +6,10 @@
 
 """Functions to specify left-right symmetry for Go2 Mid360 teacher-stage observations.
 
-This module handles the 4 observation groups used by the Mid360 config's teacher policy:
+This module handles the 3 observation groups used by the Mid360 config's teacher policy:
     - proprioception (history=5, 47 dims/frame × 5 = 235 total)
     - mapScans (history=1, 187 total)
     - privileged (history=3, 18 dims/frame × 3 = 54 total)
-    - headProximity (history=1, 32 total)
 
 Observation layout (concatenate_terms=True + history_length):
     Each group is a flat tensor of [frame_0, frame_1, ..., frame_{H-1}],
@@ -71,12 +70,6 @@ def compute_symmetric_states(
         obs_aug["privileged"][:batch_size] = obs["privileged"][:]
         obs_aug["privileged"][batch_size:] = _transform_privileged_left_right(
             obs["privileged"]
-        )
-
-        # --- headProximity (history=1, 32 dims) ---
-        obs_aug["headProximity"][:batch_size] = obs["headProximity"][:]
-        obs_aug["headProximity"][batch_size:] = _transform_headProximity_left_right(
-            obs["headProximity"]
         )
 
     else:
@@ -216,24 +209,6 @@ def _transform_privileged_left_right(obs: torch.Tensor) -> torch.Tensor:
     ).reshape(B, n_steps, 4)
 
     return data.reshape(obs.shape)
-
-
-# ============================================================================================
-# HeadProximity: 32 dims (4 zenith rows × 8 azimuth cols)
-#
-# head_proximity_pattern: meshgrid(azimuth(8), zenith(4), "xy") → (4, 8) grid.
-# Flatten is row-major: 4 rows (zenith) of 8 columns (azimuth).
-# Left-right mirror: azimuth φ → -φ → flip columns (dim 2).
-#   az = linspace(0, 2π, 8): [0, π/4, π/2, ..., 2π]
-#   Simple flip gives [2π, ..., π/2, π/4, 0]. az=0 and az=2π are the same
-#   physical direction (forward), so the simple flip is physically correct.
-# ============================================================================================
-
-def _transform_headProximity_left_right(obs: torch.Tensor) -> torch.Tensor:
-    """Left-right symmetry for headProximity: flip azimuth (width) columns."""
-    obs = obs.clone()
-    obs[:, :] = obs[:, :].view(-1, 4, 8).flip(dims=[2]).reshape(obs.shape[0], -1)
-    return obs
 
 
 # ============================================================================================

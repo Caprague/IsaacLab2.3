@@ -467,16 +467,17 @@ class EventCfg:
     #     interval_range_s=(1.0, 1.0),
     #     params={
     #         "command_name": "base_velocity",
-    #         "vel_diff_threshold": 0.3,
     #         "stucked_counter_cnt": 3,
-    #         "velocity_range": {
-    #             "x": (1.0, 2.0), 
-    #             "y": (0.0, 0.0), 
+    #         "push_vel_range": {
+    #             "x": (1.0, 2.0),
+    #             "y": (0.0, 0.0),
     #             "z": (1.0, 2.0),
-    #             "roll": (0.0, 0.0), 
-    #             "pitch": (0.0, 0.0), 
-    #             "yaw":(0.0, 0.0), 
-    #         }
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0.0, 0.0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "lin_diff_threshold": 0.3,
+    #         "ang_diff_threshold": 0.5,
     #     },
     # )
 
@@ -586,16 +587,17 @@ class EventCfg:
     #     interval_range_s=(1.0, 1.0),
     #     params={
     #         "command_name": "base_velocity",
-    #         "vel_diff_threshold": 0.3,
     #         "stucked_counter_cnt": 3,
-    #         "velocity_range": {
-    #             "x": (1.0, 2.0), 
-    #             "y": (0.0, 0.0), 
+    #         "push_vel_range": {
+    #             "x": (1.0, 2.0),
+    #             "y": (0.0, 0.0),
     #             "z": (1.0, 2.0),
-    #             "roll": (0.0, 0.0), 
-    #             "pitch": (0.0, 0.0), 
-    #             "yaw":(0.0, 0.0), 
-    #         }
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0.0, 0.0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "lin_diff_threshold": 0.3,
+    #         "ang_diff_threshold": 0.5,
     #     },
     # )
 
