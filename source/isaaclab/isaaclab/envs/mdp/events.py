@@ -1171,7 +1171,7 @@ def push_when_still_stucked_random(
     world_lin_push = math_utils.quat_apply_yaw(still_root_quat, body_push_delta[:, :3])
 
     # convert body-frame angular push to world frame using full quaternion rotation
-    world_ang_push = math_utils.quat_rotate(still_root_quat, body_push_delta[:, 3:6])
+    world_ang_push = math_utils.quat_apply(still_root_quat, body_push_delta[:, 3:6])
 
     # apply push to world-frame velocity
     vel_w = asset.data.root_vel_w[still_stucked_ids]
