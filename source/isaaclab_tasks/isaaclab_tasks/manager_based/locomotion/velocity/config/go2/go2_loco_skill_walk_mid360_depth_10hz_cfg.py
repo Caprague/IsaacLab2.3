@@ -598,7 +598,7 @@ class RewardsCfg:
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
-        weight=-15.0,
+        weight=-20.0,
         params={"target_height": 0.33, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
@@ -701,7 +701,7 @@ class RewardsCfg:
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
         weight=-0.08,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 120.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
     undesired_contacts_head = RewTerm(
@@ -875,7 +875,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                 "stucked_counter_cnt": 3,
                 "z_range": (0.75, 1.5),
                 "lin_diff_threshold": 0.3,
-                "ang_diff_threshold": 0.5,
+                "ang_diff_threshold": 0.3,
                 "push_scale": 1.5,
                 "push_scale_ang": 1.5,
             },
