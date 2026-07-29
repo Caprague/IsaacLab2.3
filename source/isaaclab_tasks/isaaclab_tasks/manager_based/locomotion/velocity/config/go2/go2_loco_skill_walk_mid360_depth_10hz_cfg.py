@@ -811,23 +811,12 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # === 模型切换：Stage1 使用基础 Go2 模型（与 go2_loco_skill_walk_cfg.py 一致）===
         self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # === 终止条件：清除 mid360 特有项 ===
-        self.terminations.orin_nx_loader_contact = None
-
-        # === 事件：清除 mid360 特有事件 ===
-        self.events.add_nx_loader_mass = None
-        self.events.add_mid360_loader_mass = None
-        self.events.add_mid360_mass = None
-        self.events.random_loader_com = None
-
         # === 命令：低速向前（与 go2_loco_skill_walk_cfg.py 一致）===
         self.commands.base_velocity.rel_vel_world_envs = 1.0
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
             lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3),
             ang_vel_z=(-0.5, 0.5), heading=(0.0, 0.0)
         )
-        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
-        self.scene.terrain.max_init_terrain_level = 5
 
         # === push_jump: stage1 only - 推动帮助机器人脱离卡住状态 ===
         self.events.push_jump = EventTerm(
@@ -911,8 +900,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
             ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
-        self.scene.terrain.terrain_generator = SKILL_WALK_PLUS_TERRAINS_HARD_CFG
-        self.scene.terrain.max_init_terrain_level = 5
 
     def _apply_stage2_config(self):
         """Stage2: 进阶训练 - 全向移动，支持转向"""
