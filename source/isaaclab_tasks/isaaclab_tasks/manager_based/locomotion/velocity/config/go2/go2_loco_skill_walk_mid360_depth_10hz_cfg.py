@@ -598,8 +598,8 @@ class RewardsCfg:
     # 基座高度偏离惩罚 [姿态]
     base_height_l2 = RewTerm(
         func=mdp.base_height_l2,
-        weight=-10.0,
-        params={"target_height": 0.32, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
+        weight=-15.0,
+        params={"target_height": 0.33, "sensor_cfg": SceneEntityCfg("base_height_scanner")},
     )
     # 默认站立姿态 [姿态]
     default_stand_pos = RewTerm(
@@ -642,8 +642,7 @@ class RewardsCfg:
         params={
             "command_name": "base_velocity",
             "cycle_period": 0.7,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-            "strict_mode": True,
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
         }
     )
     # 抬腿高度奖励
@@ -652,7 +651,7 @@ class RewardsCfg:
         weight=2.0,
         params={
             "command_name": "base_velocity",
-            "target_height": 0.05,
+            "target_height": 0.04,
             "cycle_period": 0.7,
             "std": 0.4,
             "FL_foot_sensor_cfg": SceneEntityCfg("FL_foot_height_scanner"),
@@ -701,11 +700,15 @@ class RewardsCfg:
     # feet 接触力惩罚
     feet_contact_force = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.01,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
+        weight=-0.08,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
     )
     # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
-    undesired_contacts_head = None
+    undesired_contacts_head = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-5.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
+    )
     # 接触惩罚 [姿态]
     undesired_contacts_thigh = RewTerm(
         func=mdp.undesired_contacts,
@@ -845,13 +848,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # === 模型切换：Stage1 使用基础 Go2 模型（与 go2_loco_skill_walk_cfg.py 一致）===
         self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # === 奖励函数对齐：恢复模型差异化项为简单版设定 ===
-        self.rewards.undesired_contacts_head = RewTerm(
-            func=mdp.undesired_contacts,
-            weight=-5.0,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
-        )
-
         # === 终止条件：清除 mid360 特有项 ===
         self.terminations.orin_nx_loader_contact = None
 
@@ -900,8 +896,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         # feet 接触力惩罚
         self.rewards.feet_contact_force = RewTerm(
             func=mdp.contact_forces,
-            weight=-0.02,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 170.0},
+            weight=-0.08,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 180.0},
         )
         self.rewards.undesired_contacts_head = RewTerm(
             func=mdp.undesired_contacts, weight=-0.05,
