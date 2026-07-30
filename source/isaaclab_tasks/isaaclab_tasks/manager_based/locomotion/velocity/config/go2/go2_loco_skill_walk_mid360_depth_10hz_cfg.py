@@ -726,7 +726,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     stage: str = "stage1"
-    """训练阶段: stage1(低速向前)/stage2(全向移动)/stage3(student训练，启用mid360)"""
+    """训练阶段: stage1(低速向前)/stage2(全向移动，基础模型)/stage3(全向移动，mid360模型)/stage4(student训练，启用mid360深度图)"""
 
     environment: str = "local"
     """运行环境: "local" (本机) 或 "server" (服务器)"""
@@ -776,8 +776,10 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self._apply_stage2_config()
         elif self.stage == "stage3":
             self._apply_stage3_config()
+        elif self.stage == "stage4":
+            self._apply_stage4_config()
         else:
-            raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3")
+            raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3, stage4")
 
         # 修改传感器更新频率
         if self.scene.contact_forces is not None:                   # 接触力传感器
@@ -839,8 +841,45 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         )
 
+    def _apply_omnidirectional_commands(self):
+        """应用全向移动命令配置（Stage2/3/4 共用）"""
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
+            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        )
+
+    def _apply_stage2_config(self):
+        """Stage2: 基础训练 - 全向移动（Stage1模型设定 + Stage3全向移动命令参数）"""
+        # === 模型切换：Stage2 继续使用基础 Go2 模型（与 Stage1 一致）===
+        self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        # === 命令：全向移动（与 Stage3/4 一致）===
+        self._apply_omnidirectional_commands()
+
+        # === push_jump: 推动帮助机器人脱离卡住状态（与 Stage1 一致）===
+        self.events.push_jump = EventTerm(
+            func=mdp.push_when_still_stucked_random,
+            mode="interval",
+            interval_range_s=(1.0, 2.0),
+            params={
+                "command_name": "base_velocity",
+                "stucked_counter_cnt": 3,
+                "push_vel_range": {
+                    "x": (0.75, 1.5),
+                    "y": (0.0, 0.0),
+                    "z": (0.75, 1.5),
+                    "roll": (0.0, 0.0),
+                    "pitch": (0.0, 0.0),
+                    "yaw": (0.0, 0.0),
+                },
+                "lin_diff_threshold": 0.3,
+                "ang_diff_threshold": 0.5,
+            },
+        )
+
     def _restore_mid360_config(self):
-        """恢复 mid360 特有配置（Stage2/3 共用）：奖励、终止条件、事件、命令、地形。"""
+        """恢复 mid360 特有配置（Stage3/4 共用）：奖励、终止条件、事件、命令、地形。"""
         # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
         self.rewards.feet_slide = RewTerm(
             func=mdp.feet_slide, weight=-0.075,
@@ -854,8 +893,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.rewards.flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
         self.rewards.feet_contact_force = RewTerm(
             func=mdp.contact_forces,
-            weight=-0.12,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
+            weight=-0.16,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 120.0},
         )
         self.rewards.undesired_contacts_head = RewTerm(
             func=mdp.undesired_contacts, weight=-0.05,
@@ -895,18 +934,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
 
         # 命令配置 - 全向移动
-        self.commands.base_velocity.rel_vel_world_envs = 0.75
-        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
-            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
-        )
-
-    def _apply_stage2_config(self):
-        """Stage2: 进阶训练 - 全向移动，支持转向"""
-        self._restore_mid360_config()
+        self._apply_omnidirectional_commands()
 
     def _apply_stage3_config(self):
-        """Stage3: Student训练 - 启用Mid360雷达和深度图观测"""
+        """Stage3: 进阶训练 - 全向移动，mid360模型，支持转向"""
+        self._restore_mid360_config()
+
+    def _apply_stage4_config(self):
+        """Stage4: Student训练 - 启用Mid360雷达和深度图观测"""
         self._restore_mid360_config()
 
         # 路径映射 - 根据environment自动切换
@@ -987,7 +1022,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             # 使用原始深度图观测函数
             self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
 
-        # proprioception_noised: stage3 only - Student训练使用带噪声的本体感知
+        # proprioception_noised: stage4 only - Student训练使用带噪声的本体感知
         self.observations.proprioception_noised = ObservationsCfg.ProprioceptionNoised()
 
         # mid360传感器更新频率 - 10 Hz
@@ -1001,8 +1036,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
 class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
     def __post_init__(self) -> None:
-        # 部署播放策略，使用stage3，拟真模式转换Mid360深度图
-        self.stage = "stage3"
+        # 部署播放策略，使用stage4，拟真模式转换Mid360深度图
+        self.stage = "stage4"
         self.use_simple_lidar = False
 
         # post init of parent
