@@ -854,8 +854,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
         self.rewards.flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
         self.rewards.feet_contact_force = RewTerm(
             func=mdp.contact_forces,
-            weight=-0.08,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 125.0},
+            weight=-0.16,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 120.0},
         )
         self.rewards.undesired_contacts_head = RewTerm(
             func=mdp.undesired_contacts, weight=-0.05,
