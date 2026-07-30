@@ -17,7 +17,7 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 250
     experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz"
 
-    env_stage = "stage1"        # stage1 or stage2 or stage3
+    env_stage = "stage1"        # stage1(前向+DR) / stage2(全向+DR) / stage3(distillation专用)
 
     def __post_init__(self):
         if self.env_stage == "stage1":
@@ -25,9 +25,7 @@ class UnitreeGo2LocoSkillPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         elif self.env_stage == "stage2":
             self.max_iterations = 4001
         elif self.env_stage == "stage3":
-            self.max_iterations = 6001
-        elif self.env_stage == "stage4":
-            raise ValueError("stage4 requires distillation training, use <--agent rsl_rl_distillation_cfg_entry_point> !")
+            raise ValueError("stage3 requires distillation training, use <--agent rsl_rl_distillation_cfg_entry_point> !")
         else:
             raise ValueError(f"Unknown stage: {self.env_stage}, choose from: stage1, stage2, stage3")
    

@@ -7,9 +7,10 @@
 # ============================================================================================================
 # 导入资源
 import math
+import torch
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.assets import Articulation, ArticulationCfg, AssetBaseCfg
+from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -35,7 +36,90 @@ from isaaclab.terrains.config.rough import SKILL_WALK_PLUS_TERRAINS_HARD_CFG  # 
 ##
 # Pre-defined configs - Unitree Go2
 ##
-from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG, UNITREE_GO2_SELF_COLIISIONS_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_MID360_NX_CFG  # isort: skip
+
+
+# ============================================================================================================
+# 自定义事件：混合模型 per-env 离散模式选择
+
+
+def randomize_mixed_model_mode(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    asset_cfg: SceneEntityCfg,
+):
+    """Per-env 离散模式选择：每个 env 随机分配为「基础 Go2」或「Mid360 负载」两种身体配置。
+
+    与连续 DR 不同，此函数在每次 startup 时以 50/50 概率将各 env 划分为两类：
+      - 基础模式：extra body 质量 → 1e-6（等效于无此负载），base COM z 偏移窄
+      - Mid360 模式：extra body 质量 → 标称值，base COM z 偏移宽
+
+    这确保策略同时学会两种身体配置，且不会看到两者之间连续的中间状态。
+
+    所有 tensor 操作跟随物理引擎所在 device，无 CPU↔GPU 中转。
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    device = env.device
+
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=device)
+    else:
+        env_ids = env_ids.to(device)
+
+    n_envs = len(env_ids)
+
+    # ── 随机 50/50 划分 ──────────────────────────────────────────
+    mode = torch.zeros(n_envs, device=device, dtype=torch.int)
+    half = max(1, n_envs // 2)
+    mid360_idx = torch.randperm(n_envs, device=device)[:half]
+    mode[mid360_idx] = 1
+
+    base_mask = mode == 0
+    mid360_mask = mode == 1
+
+    # ── 解析 extra body 索引（一次性，cpu 即可） ─────────────────
+    extra_body_names = ["orin_nx_loader", "head_mid360_loader", "head_mid360"]
+    extra_body_ids = []
+    for name in extra_body_names:
+        for i, bn in enumerate(asset.body_names):
+            if name in bn:
+                extra_body_ids.append(i)
+                break
+    if len(extra_body_ids) != 3:
+        raise RuntimeError(
+            f"mixed_model_mode: 只找到 {len(extra_body_ids)}/3 个 extra body，"
+            f"请检查 USD body 命名。找到的: {[asset.body_names[i] for i in extra_body_ids]}"
+        )
+    extra_body_ids = torch.tensor(extra_body_ids, dtype=torch.long, device=device)
+
+    # ── 质量：离散赋值 ────────────────────────────────────────────
+    masses = asset.root_physx_view.get_masses().clone()
+
+    mass_base = torch.tensor([1e-6, 1e-6, 1e-6], device=device)
+    mass_mid360 = torch.tensor([1.8, 0.25, 0.27], device=device)
+
+    if base_mask.any():
+        masses[env_ids[base_mask][:, None], extra_body_ids] = mass_base
+    if mid360_mask.any():
+        masses[env_ids[mid360_mask][:, None], extra_body_ids] = mass_mid360
+
+    asset.root_physx_view.set_masses(masses, env_ids)
+
+    # ── Base COM z 偏移：模式区分 ─────────────────────────────────
+    base_body_id = torch.tensor([0], dtype=torch.long, device=device)
+    coms = asset.root_physx_view.get_coms().clone()
+
+    if base_mask.any():
+        be = env_ids[base_mask]
+        z_shift = torch.rand(len(be), device=device) * 0.06
+        coms[be[:, None], base_body_id, 2] += z_shift[:, None]
+
+    if mid360_mask.any():
+        me = env_ids[mid360_mask]
+        z_shift = torch.rand(len(me), device=device) * 0.12
+        coms[me[:, None], base_body_id, 2] += z_shift[:, None]
+
+    asset.root_physx_view.set_coms(coms, env_ids)
 
 
 # ============================================================================================================
@@ -67,7 +151,7 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=False,
     )
 
-    # 机器人
+    # 机器人 - 默认使用 mid360 模型，通过 DR 覆盖裸 Go2 ↔ 满配 mid360 的质量/COM 范围
     robot: ArticulationCfg = UNITREE_GO2_MID360_NX_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # 传感器
@@ -415,21 +499,27 @@ class EventCfg:
         },
     )
 
-    # 模型差异化项，由 _apply_stageX_config 设定
-    add_nx_loader_mass = None
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 混合模型 per-env 离散模式选择
+    # 每个 env 在启动时随机分配为基础 Go2 或 Mid360 负载两种身体配置之一
+    # 替换了原先 5 个单独的 extra-body mass/COM 事件
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    mixed_model_mode = EventTerm(
+        func=randomize_mixed_model_mode,
+        mode="startup",
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+    # base 整体质量随机化（两种模式均生效）
     add_base_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-1.0, 3.0),
+            "mass_distribution_params": (-1.0, 1.5),
             "operation": "add",
         },
     )
-    # 模型差异化项，由 _apply_stageX_config 设定
-    add_mid360_loader_mass = None
-    # 模型差异化项，由 _apply_stageX_config 设定
-    add_mid360_mass = None
+    # base COM x/y 随机化（z 方向由 mixed_model_mode 按模式分别处理）
     random_base_com = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
@@ -438,12 +528,16 @@ class EventCfg:
             "com_range": {
                 "x": (-0.05, 0.05),
                 "y": (-0.03, 0.03),
-                "z": (-0.00, 0.12),
+                "z": (0.0, 0.0),              # z 方向由 mixed_model_mode 管理
             },
         },
     )
-    # 模型差异化项，由 _apply_stageX_config 设定
-    random_loader_com = None
+    # mid360 背部负载 COM x/y/z 随机化（基础模式下 loader 质量 ~0，此事件无实际影响）
+    random_loader_com = EventTerm(
+        func=mdp.randomize_rigid_body_com, mode="startup",
+        params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
+                "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
+    )
     mul_hip_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
@@ -669,11 +763,11 @@ class RewardsCfg:
         weight=-0.08,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 100.0},
     )
-    # 接触惩罚 [姿态] — 模型差异化项，由 _apply_stageX_config 设定
+    # 接触惩罚 [姿态] — 模型差异化项（mid360 模型默认 body）
     undesired_contacts_head = RewTerm(
         func=mdp.undesired_contacts,
         weight=-5.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head.*"), "threshold": 1.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
     )
     # 接触惩罚 [姿态]
     undesired_contacts_thigh = RewTerm(
@@ -702,8 +796,11 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
-    # 模型差异化项，由 _apply_stageX_config 设定
-    orin_nx_loader_contact = None
+    # mid360 背部负载接触终止 — 默认启用（body 始终存在，DR 下质量可变但碰撞几何不变）
+    orin_nx_loader_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
+    )
 
 
 # ============================================================================================================
@@ -726,7 +823,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     stage: str = "stage1"
-    """训练阶段: stage1(低速向前)/stage2(全向移动，基础模型)/stage3(全向移动，mid360模型)/stage4(student训练，启用mid360深度图)"""
+    """训练阶段: stage1(低速向前 + per-env离散混合模型)/stage2(全向移动 + per-env离散混合模型)/stage3(student蒸馏，启用mid360深度图)"""
 
     environment: str = "local"
     """运行环境: "local" (本机) 或 "server" (服务器)"""
@@ -776,10 +873,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             self._apply_stage2_config()
         elif self.stage == "stage3":
             self._apply_stage3_config()
-        elif self.stage == "stage4":
-            self._apply_stage4_config()
         else:
-            raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3, stage4")
+            raise ValueError(f"Unknown stage: {self.stage}, choose from: stage1, stage2, stage3")
 
         # 修改传感器更新频率
         if self.scene.contact_forces is not None:                   # 接触力传感器
@@ -809,11 +904,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
                 self.scene.terrain.terrain_generator.curriculum = False
 
     def _apply_stage1_config(self):
-        """Stage1: 基础训练 - 低速向前，无转向（严格复刻 go2_loco_skill_walk_cfg.py 训练设定）"""
-        # === 模型切换：Stage1 使用基础 Go2 模型（与 go2_loco_skill_walk_cfg.py 一致）===
-        self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
-        # === 命令：低速向前（与 go2_loco_skill_walk_cfg.py 一致）===
+        """Stage1: 基础训练 - 低速向前 + per-env 离散混合模型（每 env 随机为基础 Go2 或 Mid360 负载）"""
+        # === 命令：低速向前 ===
         self.commands.base_velocity.rel_vel_world_envs = 1.0
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
             lin_vel_x=(0.5, 1.0), lin_vel_y=(-0.3, 0.3),
@@ -841,23 +933,16 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         )
 
-    def _apply_omnidirectional_commands(self):
-        """应用全向移动命令配置（Stage2/3/4 共用）"""
+    def _apply_stage2_config(self):
+        """Stage2: 进阶训练 - 全向移动 + per-env 离散混合模型（仅命令切换为全向，模型混合方式不变）"""
+        # === 命令：全向移动 ===
         self.commands.base_velocity.rel_vel_world_envs = 0.75
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
             lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
             ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
 
-    def _apply_stage2_config(self):
-        """Stage2: 基础训练 - 全向移动（Stage1模型设定 + Stage3全向移动命令参数）"""
-        # === 模型切换：Stage2 继续使用基础 Go2 模型（与 Stage1 一致）===
-        self.scene.robot = UNITREE_GO2_SELF_COLIISIONS_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
-        # === 命令：全向移动（与 Stage3/4 一致）===
-        self._apply_omnidirectional_commands()
-
-        # === push_jump: 推动帮助机器人脱离卡住状态（与 Stage1 一致）===
+        # === push_jump: 全向移动初期仍需要帮助脱离卡住状态 ===
         self.events.push_jump = EventTerm(
             func=mdp.push_when_still_stucked_random,
             mode="interval",
@@ -878,71 +963,14 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             },
         )
 
-    def _restore_mid360_config(self):
-        """恢复 mid360 特有配置（Stage3/4 共用）：奖励、终止条件、事件、命令、地形。"""
-        # === 奖励函数：恢复 mid360 特有值（当前版本设定） ===
-        self.rewards.feet_slide = RewTerm(
-            func=mdp.feet_slide, weight=-0.075,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-                    "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot")},
-        )
-        self.rewards.feet_stumble = RewTerm(
-            func=mdp.feet_stumble, weight=-0.05,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
-        )
-        self.rewards.flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
-        self.rewards.feet_contact_force = RewTerm(
-            func=mdp.contact_forces,
-            weight=-0.16,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "threshold": 120.0},
-        )
-        self.rewards.undesired_contacts_head = RewTerm(
-            func=mdp.undesired_contacts, weight=-0.05,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="head_mid360_loader"), "threshold": 1.0},
-        )
-
-        # === 终止条件：恢复 mid360 特有项 ===
-        self.terminations.orin_nx_loader_contact = DoneTerm(
-            func=mdp.illegal_contact,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="orin_nx_loader"), "threshold": 1.0},
-        )
-
-        # === 事件：恢复 mid360 特有事件 ===
-        self.events.add_nx_loader_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "mass_distribution_params": (0.5, 2.0), "operation": "abs"},
-        )
-        self.events.add_mid360_loader_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360_loader"),
-                    "mass_distribution_params": (0.15, 0.35), "operation": "abs"},
-        )
-        self.events.add_mid360_mass = EventTerm(
-            func=mdp.randomize_rigid_body_mass, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="head_mid360"),
-                    "mass_distribution_params": (0.27, 0.27), "operation": "abs"},
-        )
-        self.events.random_loader_com = EventTerm(
-            func=mdp.randomize_rigid_body_com, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="orin_nx_loader"),
-                    "com_range": {"x": (-0.015, 0.015), "y": (-0.015, 0.015), "z": (0.00, 0.04)}},
-        )
-        # COM 随机化：恢复为 mid360 特有 z 范围
-        self.events.random_base_com.params["com_range"]["z"] = (0.00, 0.06)
-        # base 质量随机化覆盖
-        self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 1.0)
-
-        # 命令配置 - 全向移动
-        self._apply_omnidirectional_commands()
-
     def _apply_stage3_config(self):
-        """Stage3: 进阶训练 - 全向移动，mid360模型，支持转向"""
-        self._restore_mid360_config()
-
-    def _apply_stage4_config(self):
-        """Stage4: Student训练 - 启用Mid360雷达和深度图观测"""
-        self._restore_mid360_config()
+        """Stage3: Student蒸馏训练 - 启用Mid360雷达和深度图观测"""
+        # === 命令：全向移动 ===
+        self.commands.base_velocity.rel_vel_world_envs = 0.75
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfgUser.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0),
+            ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        )
 
         # 路径映射 - 根据environment自动切换
         paths = {
@@ -995,7 +1023,6 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             ],
             "data_collection": False,
             "data_save_path": "/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360_GRID/10Hz",
-            # "data_save_path": "/home/gms/Isaac/IsaacLab2.3/DataCollection/Mid360/10Hz",
             "pc_data_saver_cfg": RayCasterLidarCfg.DataSaverCfg(data_type='pcd', sub_dir_name='partial', max_sequence=20, T_max=5),
             "pose_data_saver_cfg": RayCasterLidarCfg.DataSaverCfg(data_type='npz', sub_dir_name='transform', max_sequence=20, T_max=5),
         }
@@ -1022,7 +1049,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
             # 使用原始深度图观测函数
             self.observations.mid360_depth = ObservationsCfg.Mid360Depth()
 
-        # proprioception_noised: stage4 only - Student训练使用带噪声的本体感知
+        # proprioception_noised: stage3 only - Student训练使用带噪声的本体感知
         self.observations.proprioception_noised = ObservationsCfg.ProprioceptionNoised()
 
         # mid360传感器更新频率 - 10 Hz
@@ -1036,8 +1063,8 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
 
 class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
     def __post_init__(self) -> None:
-        # 部署播放策略，使用stage4，拟真模式转换Mid360深度图
-        self.stage = "stage4"
+        # 部署播放策略，使用stage3，拟真模式转换Mid360深度图
+        self.stage = "stage3"
         self.use_simple_lidar = False
 
         # post init of parent
