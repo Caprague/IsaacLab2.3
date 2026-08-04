@@ -14,6 +14,7 @@ extend-exclude = [
     ".vscode",
     "_*",
     ".git",
+    "rsl_rl",
 ]
 
 [tool.ruff.lint]
@@ -108,6 +109,7 @@ exclude = [
     "**/_isaac_sim",
     "**/docs",
     "**/logs",
+    "**/rsl_rl",
     ".git",
     ".vscode",
 ]
@@ -129,7 +131,7 @@ reportPrivateUsage = "warning"
 
 
 [tool.codespell]
-skip = '*.usd,*.usda,*.usdz,*.svg,*.png,_isaac_sim*,*.bib,*.css,*/_build'
+skip = '*.usd,*.usda,*.usdz,*.svg,*.png,_isaac_sim*,*.bib,*.css,*/_build,rsl_rl*'
 quiet-level = 0
 # the world list should always have words in lower case
 ignore-words-list = "haa,slq,collapsable,buss,reacher,thirdparty"

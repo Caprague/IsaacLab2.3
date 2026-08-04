@@ -1,3 +1,26 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Python source — force LF (cross-platform: Isaac Sim runs on Linux)
+*.py text eol=lf
+
+# Config / data files — force LF
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+*.md text eol=lf
+
+# Shell scripts — force LF (will only run on Linux)
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows batch scripts — keep CRLF
+*.bat text eol=crlf
+
+# Git LFS — large binary files
 *.usd filter=lfs diff=lfs merge=lfs -text
 *.usda filter=lfs diff=lfs merge=lfs -text
 *.psd filter=lfs diff=lfs merge=lfs -text
@@ -11,4 +34,8 @@
 *.jit filter=lfs diff=lfs merge=lfs -text
 *.hdf5 filter=lfs diff=lfs merge=lfs -text
 
-*.bat text eol=crlf
+# Binary images — no EOL conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
