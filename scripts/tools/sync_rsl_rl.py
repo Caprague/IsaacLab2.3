@@ -105,18 +105,30 @@ def resolve_target_dir(target_override: str | None) -> Path:
         Resolved target directory path.
 
     Raises:
-        ValueError: If neither ``--target`` nor ``RSL_RL_PATH`` is set.
+        ValueError: If neither ``--target`` nor ``RSL_RL_PATH`` is set, or if
+            the resolved target's last path component is not ``rsl_rl``.
     """
     if target_override:
-        return Path(target_override)
+        target = Path(target_override)
+    else:
+        rsl_rl_path = os.environ.get("RSL_RL_PATH")
+        if not rsl_rl_path:
+            raise ValueError(
+                "Target path is not specified.\n"
+                "Set the RSL_RL_PATH environment variable, or use --target <path>."
+            )
+        target = Path(rsl_rl_path)
 
-    rsl_rl_path = os.environ.get("RSL_RL_PATH")
-    if not rsl_rl_path:
+    # Safety check: the last folder in the path must be "rsl_rl"
+    if target.name != "rsl_rl":
         raise ValueError(
-            "Target path is not specified.\n"
-            "Set the RSL_RL_PATH environment variable, or use --target <path>."
+            f"Target path's last folder is '{target.name}', but must be 'rsl_rl'.\n"
+            f"Resolved path: {target.resolve()}\n"
+            "The sync script only writes to directories named 'rsl_rl' to prevent "
+            "accidental operations on unrelated folders.\n"
+            "Please verify your RSL_RL_PATH or --target value."
         )
-    return Path(rsl_rl_path)
+    return target
 
 
 def _ignore_patterns(directory: str, filenames: list[str]) -> list[str]:
