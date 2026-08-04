@@ -501,6 +501,16 @@ def main(
 
             # --- Save intermediate checkpoints ---
             if train_count % save_every == 0:
+                # Full autoencoder (encoder+decoder) for visualization
+                torch.save(
+                    hs_ae.state_dict(),
+                    os.path.join(output_dir, "height_scan_ae.pt"),
+                )
+                torch.save(
+                    priv_ae.state_dict(),
+                    os.path.join(output_dir, "privilege_ae.pt"),
+                )
+                # Encoder-only for student distillation pipeline
                 torch.save(
                     hs_ae.encoder.state_dict(),
                     os.path.join(output_dir, "height_scan_encoder.pt"),
@@ -510,7 +520,7 @@ def main(
                     os.path.join(output_dir, "privilege_encoder.pt"),
                 )
                 print(
-                    f"[INFO] Saved intermediate encoder checkpoints "
+                    f"[INFO] Saved intermediate checkpoints "
                     f"at train_count={train_count}"
                 )
 
@@ -528,12 +538,26 @@ def main(
         ),
         "iter": teacher_ckpt.get("iter", 0),
         "infos": teacher_ckpt.get("infos", {}),
+        # Encoder-only weights (for student distillation)
         "height_scan_encoder": hs_ae.encoder.state_dict(),
         "privilege_encoder": priv_ae.encoder.state_dict(),
+        # Full autoencoder weights (encoder+decoder, for visualization)
+        "height_scan_ae": hs_ae.state_dict(),
+        "privilege_ae": priv_ae.state_dict(),
         "encoder_iter": train_count,
         "source_checkpoint": str(resume_path),
     }
     torch.save(combined, os.path.join(output_dir, "model_teacher.pt"))
+    # Full autoencoder (encoder+decoder) for visualization
+    torch.save(
+        hs_ae.state_dict(),
+        os.path.join(output_dir, "height_scan_ae.pt"),
+    )
+    torch.save(
+        priv_ae.state_dict(),
+        os.path.join(output_dir, "privilege_ae.pt"),
+    )
+    # Encoder-only for student distillation pipeline
     torch.save(
         hs_ae.encoder.state_dict(),
         os.path.join(output_dir, "height_scan_encoder.pt"),
@@ -562,9 +586,11 @@ def main(
 
     print(
         f"[INFO] Final outputs saved to: {output_dir}\n"
-        f"  - model_teacher.pt\n"
-        f"  - height_scan_encoder.pt\n"
-        f"  - privilege_encoder.pt"
+        f"  - model_teacher.pt (includes both encoder-only and full AE weights)\n"
+        f"  - height_scan_ae.pt (full autoencoder: encoder+decoder)\n"
+        f"  - privilege_ae.pt (full autoencoder: encoder+decoder)\n"
+        f"  - height_scan_encoder.pt (encoder-only, for student distillation)\n"
+        f"  - privilege_encoder.pt (encoder-only, for student distillation)"
     )
 
     # close the simulator

@@ -30,7 +30,7 @@ Usage:
     ./isaaclab.sh -p scripts/tools/encoder_pretrain/visualize_encoder_reconstruction.py \
         --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher \
         --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/2026-07-31_00-15-36/model_16000.pt \
-        --encoder_checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/2026-08-04_23-24-32_pretrain_teacher/model_teacher.pt \
+        --encoder_checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/2026-08-05_02-15-44_pretrain_teacher/model_teacher.pt \
         --num_envs 4 --env_id 0
 
 Keyboard controls:
@@ -160,36 +160,76 @@ PRIV_LABELS = _build_priv_labels()  # 54 strings
 def _load_encoder_weights(
     checkpoint_path: str, hs_ae: HeightScanEncoder, priv_ae: PrivilegeEncoder, device: torch.device
 ) -> None:
-    """Load encoder weights from a checkpoint file.
+    """Load encoder and decoder weights from a checkpoint file.
 
     Supports:
-        - model_teacher.pt (combined checkpoint with keys "height_scan_encoder", "privilege_encoder")
-        - Individual height_scan_encoder.pt / privilege_encoder.pt files
+        - model_teacher.pt with "height_scan_ae"/"privilege_ae" keys (full autoencoder)
+        - model_teacher.pt with "height_scan_encoder"/"privilege_encoder" keys (encoder only)
+        - Standalone *_ae.pt files (full autoencoder, encoder+decoder)
+        - Standalone height_scan_encoder.pt / privilege_encoder.pt files (encoder only)
+
+    Important:
+        For visualization, both encoder AND decoder weights are required.
+        Loading encoder-only will result in poor reconstruction.
 
     """
     state = torch.load(checkpoint_path, weights_only=True, map_location=device)
 
-    if "height_scan_encoder" in state:
-        hs_ae.encoder.load_state_dict(state["height_scan_encoder"])
-        print("[INFO] Loaded height_scan_encoder from model_teacher.pt")
-    else:
-        hs_ae.encoder.load_state_dict(state)
-        print("[INFO] Loaded height_scan_encoder from standalone .pt")
-
-    if "privilege_encoder" in state:
-        priv_ae.encoder.load_state_dict(state["privilege_encoder"])
-        print("[INFO] Loaded privilege_encoder from model_teacher.pt")
+    # --- HeightScan autoencoder ---
+    if "height_scan_ae" in state:
+        # Full autoencoder from model_teacher.pt
+        hs_ae.load_state_dict(state["height_scan_ae"])
+        print("[INFO] Loaded full HeightScan autoencoder (encoder+decoder) from model_teacher.pt")
     elif "height_scan_encoder" in state:
-        # model_teacher.pt but no privilege_encoder key → try separate file
+        # Encoder only from model_teacher.pt — try separate full AE file
+        ae_path = os.path.join(os.path.dirname(checkpoint_path), "height_scan_ae.pt")
+        if os.path.exists(ae_path):
+            ae_state = torch.load(ae_path, weights_only=True, map_location=device)
+            hs_ae.load_state_dict(ae_state)
+            print(f"[INFO] Loaded full HeightScan autoencoder from: {ae_path}")
+        else:
+            hs_ae.encoder.load_state_dict(state["height_scan_encoder"])
+            print("[WARN] Only HS encoder loaded (decoder random). Reconstruction will be poor!")
+    else:
+        # Standalone file — check if it contains decoder keys
+        has_decoder = any(k.startswith("decoder") for k in state)
+        if has_decoder:
+            hs_ae.load_state_dict(state)
+            print("[INFO] Loaded full HeightScan autoencoder from standalone .pt")
+        else:
+            hs_ae.encoder.load_state_dict(state)
+            print("[WARN] Loaded HS encoder from standalone .pt (decoder random). Reconstruction will be poor!")
+
+    # --- Privilege autoencoder ---
+    if "privilege_ae" in state:
+        priv_ae.load_state_dict(state["privilege_ae"])
+        print("[INFO] Loaded full Privilege autoencoder (encoder+decoder) from model_teacher.pt")
+    elif "privilege_encoder" in state:
+        # Try separate full AE file first
+        ae_path = os.path.join(os.path.dirname(checkpoint_path), "privilege_ae.pt")
+        if os.path.exists(ae_path):
+            ae_state = torch.load(ae_path, weights_only=True, map_location=device)
+            priv_ae.load_state_dict(ae_state)
+            print(f"[INFO] Loaded full Privilege autoencoder from: {ae_path}")
+        else:
+            priv_ae.encoder.load_state_dict(state["privilege_encoder"])
+            print("[WARN] Only Priv encoder loaded (decoder random). Reconstruction will be poor!")
+    elif "height_scan_encoder" in state or "height_scan_ae" in state:
+        # model_teacher.pt but no privilege key → try separate file
+        ae_path = os.path.join(os.path.dirname(checkpoint_path), "privilege_ae.pt")
         priv_path = os.path.join(os.path.dirname(checkpoint_path), "privilege_encoder.pt")
-        if os.path.exists(priv_path):
+        if os.path.exists(ae_path):
+            ae_state = torch.load(ae_path, weights_only=True, map_location=device)
+            priv_ae.load_state_dict(ae_state)
+            print(f"[INFO] Loaded full Privilege autoencoder from: {ae_path}")
+        elif os.path.exists(priv_path):
             priv_state = torch.load(priv_path, weights_only=True, map_location=device)
             priv_ae.encoder.load_state_dict(priv_state)
-            print(f"[INFO] Loaded privilege_encoder from: {priv_path}")
+            print(f"[WARN] Loaded Priv encoder from: {priv_path} (decoder random). Reconstruction will be poor!")
         else:
-            print("[WARN] privilege_encoder not found in checkpoint or directory.")
+            print("[WARN] Privilege encoder not found in checkpoint or directory.")
     else:
-        print("[WARN] Could not determine encoder weight format.")
+        print("[WARN] Could not determine privilege encoder weight format.")
 
 
 # ------------------------------------------------------------------
