@@ -568,11 +568,21 @@ def main(
     )
 
     # close the simulator
-    env.close()
+    try:
+        env.close()
+    except Exception as e:
+        print(f"[WARN] Error during env.close(): {e}")
 
 
 if __name__ == "__main__":
     # run the main function
     main()
-    # close sim app
-    simulation_app.close()
+    # close sim app — wrapped in try/except because Isaac Sim may segfault
+    # when X11 connection is lost (e.g. tmux detach, SSH disconnect)
+    try:
+        simulation_app.close()
+    except Exception as e:
+        print(f"[WARN] Error during simulation_app.close(): {e}")
+    # force clean exit to avoid segfault from dangling C extension cleanup
+    import os as _os
+    _os._exit(0)
