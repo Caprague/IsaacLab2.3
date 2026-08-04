@@ -74,6 +74,16 @@ class RslRlDistillationStudentTeacherDepthImageCfg(RslRlDistillationStudentTeach
     """The policy class name. Default is StudentTeacherDepthImage."""
 
 
+@configclass
+class RslRlDistillationStudentTeacherDepthImageRecurrentCfg(
+    RslRlDistillationStudentTeacherRecurrentCfg
+):
+    """Configuration for distillation with depth image + GRU fusion."""
+
+    class_name: str = "StudentTeacherDepthImageRecurrent"
+    """The policy class name. Default is StudentTeacherDepthImageRecurrent."""
+
+
 ############################
 # Algorithm configurations #
 ############################

@@ -12,6 +12,8 @@ from .normalization import EmpiricalDiscountedVariationNormalization, EmpiricalN
 from .mha import MHA
 from .scan_cnn_encoder import ScanCNNEncoder
 from .depth_image_encoder import DepthImageEncoder
+from .teacher_encoders import HeightScanEncoder, PrivilegeEncoder
+from .student_depth_cnn import StudentDepthCNN
 
 __all__ = [
     "MLP",
@@ -21,5 +23,8 @@ __all__ = [
     "Memory",
     "MHA",
     "ScanCNNEncoder",
-    "DepthImageEncoder"
+    "DepthImageEncoder",
+    "HeightScanEncoder",
+    "PrivilegeEncoder",
+    "StudentDepthCNN",
 ]

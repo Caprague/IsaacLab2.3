@@ -8,7 +8,7 @@ from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import (
     RslRlDistillationAlgorithmCfg,
     RslRlDistillationRunnerCfg,
-    RslRlDistillationStudentTeacherDepthImageCfg,
+    RslRlDistillationStudentTeacherDepthImageRecurrentCfg,
 )
 
 
@@ -24,7 +24,7 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
         "policy": ["proprioception_noised", "mid360_depth"],
         "teacher": ["proprioception", "mapScans", "privileged"],
     }
-    policy = RslRlDistillationStudentTeacherDepthImageCfg(
+    policy = RslRlDistillationStudentTeacherDepthImageRecurrentCfg(
         init_noise_std=0.05,
         noise_std_type="scalar",
         student_obs_normalization=False,
@@ -32,6 +32,10 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
         student_hidden_dims=[512, 256, 128],
         teacher_hidden_dims=[512, 256, 128],
         activation="elu",
+        rnn_type="gru",
+        rnn_hidden_dim=256,
+        rnn_num_layers=1,
+        teacher_recurrent=False,
     )
     algorithm = RslRlDistillationAlgorithmCfg(
         num_learning_epochs=2,

@@ -403,19 +403,28 @@ class ObsBuffer:
 
 ```python
 def pretrain_teacher_encoders(
-    checkpoint_path: str,       # Stage3 teacher checkpoint
-    total_steps: int = 2000,    # 总环境步数
-    train_every: int = 100,     # 每 N 步训练一次
-    train_epochs: int = 10,     # 每次训练的 epoch 数
-    batch_size: int = 4096,     # 训练 batch size
-    save_every: int = 5,        # 每 N 次训练保存一次
-    output_dir: str = "pretrained_encoders",
+    checkpoint_path: str,                   # ① Stage3 teacher checkpoint（--checkpoint）
+    total_steps: int = 2000,
+    train_every: int = 100,
+    train_epochs: int = 10,
+    batch_size: int = 4096,
+    save_every: int = 5,
+    push_interval: int = 300,              # ② 推力扰动间隔（0=禁用）
+    encoder_checkpoint: str | None = None,  # ③ 已有 encoder 权重（warm start）
 ):
-    # === Phase 1: Setup ===
+    # === Phase 1: Setup（同 play.py） ===
     env = RslRlVecEnvWrapper(gym.make(task, cfg=env_cfg))
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
     runner.load(checkpoint_path)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
+
+    # === Phase 1.5: 生成输出路径（对齐 train.py 风格） ===
+    output_experiment = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"
+    output_root = os.path.join("logs", "rsl_rl", output_experiment)
+    output_run = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_pretrain_teacher"
+    output_dir = os.path.join(output_root, output_run)
+    os.makedirs(os.path.join(output_dir, "params"), exist_ok=True)
+    # 保存预训练配置到 params/pretrain_config.yaml（参考 train.py dump_yaml）
 
     # === Phase 2: 创建 AutoEncoder + 优化器 ===
     hs_ae = HeightScanEncoder().to(device)
@@ -462,17 +471,34 @@ def pretrain_teacher_encoders(
 
             train_count += 1
 
-            # Save: 定期保存
+            # Save: 定期保存中间 checkpoint（覆盖式，仅保留最新）
             if train_count % save_every == 0:
-                os.makedirs(output_dir, exist_ok=True)
                 torch.save(hs_ae.encoder.state_dict(),
-                           f"{output_dir}/height_scan_encoder_{train_count}.pt")
+                           os.path.join(output_dir, "height_scan_encoder.pt"))
                 torch.save(priv_ae.encoder.state_dict(),
-                           f"{output_dir}/privilege_encoder_{train_count}.pt")
+                           os.path.join(output_dir, "privilege_encoder.pt"))
 
-    # === Phase 4: 最终保存 ===
-    torch.save(hs_ae.encoder.state_dict(), f"{output_dir}/height_scan_encoder.pt")
-    torch.save(priv_ae.encoder.state_dict(), f"{output_dir}/privilege_encoder.pt")
+    # === Phase 4: 最终保存（含完整 teacher checkpoint） ===
+    # 读取原始 teacher checkpoint（仅 model_state_dict）
+    teacher_ckpt = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
+    combined = {
+        "model_state_dict": teacher_ckpt["model_state_dict"],
+        "optimizer_state_dict": teacher_ckpt.get("optimizer_state_dict", {}),
+        "iter": teacher_ckpt.get("iter", 0),
+        "infos": teacher_ckpt.get("infos", {}),
+        # 新增 encoder 权重
+        "height_scan_encoder": hs_ae.encoder.state_dict(),
+        "privilege_encoder": priv_ae.encoder.state_dict(),
+        # 预训练元信息
+        "encoder_iter": train_count,
+        "encoder_loss_hs": final_hs_loss,
+        "encoder_loss_priv": final_priv_loss,
+        "source_checkpoint": str(checkpoint_path),
+    }
+    torch.save(combined, os.path.join(output_dir, "model_teacher.pt"))
+    # 同时保存 encoder 单独权重（方便仅替换 encoder）
+    torch.save(hs_ae.encoder.state_dict(), os.path.join(output_dir, "height_scan_encoder.pt"))
+    torch.save(priv_ae.encoder.state_dict(), os.path.join(output_dir, "privilege_encoder.pt"))
 ```
 
 ##### 关键设计决策
@@ -483,7 +509,7 @@ def pretrain_teacher_encoders(
 | teacher 策略状态 | **eval() + inference_mode** | 教师只推理不训练，避免计算图膨胀 |
 | encoder 训练时机 | **边 play 边 train**（交替进行） | 让 encoder 逐步适应教师策略产生的观测分布；不需要等全部数据收集完再训练 |
 | 训练频率 | 每 100 环境步训练 10 epoch | 平衡数据新鲜度与训练效率；100 步 ≈ 4096×100 = 409K 新样本 |
-| 保存粒度 | 每 5 次训练（≈ 500 环境步）保存一次 | 避免断电丢失；用户可从中选择重建 loss 最低的 checkpoint |
+| 保存策略 | 每 5 次训练覆盖式保存 `height_scan_encoder.pt` / `privilege_encoder.pt`；最终输出完整 `model_teacher.pt`（含原始 teacher weights + encoder weights + 元信息） | 中间 checkpoint 仅保留最新，避免碎片化；最终产物可直接被 Stage4 `DistillationRunner.load()` 加载 |
 | decoder 丢弃 | 仅保存 `encoder.state_dict()` | 蒸馏阶段只需 encoder；decoder 是预训练的临时辅助 |
 | CPU 缓冲区 | `.cpu()` 存入缓冲区，训练时 `.to(device)` | 避免长期占用 GPU 显存；AutoEncoder 训练 batch 小，传回 GPU 开销可忽略 |
 | 两个 encoder | **分开训练**，各自独立的 optimizer | 两个 AutoEncoder 输入维度不同、收敛速度不同，分开训练更稳定 |
@@ -552,6 +578,86 @@ def pretrain_teacher_encoders(
   - **存在** → 加载已有 encoder 权重作为 warm start，继续训练（适应未来迭代）
 - 输出统一为新版格式，无论输入是旧版还是新版
 
+##### 目录路径与命名规范（对齐 train.py 风格）
+
+**核心原则**：预训练产出的 checkpoint 必须放在 `Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU` 实验目录下，遵循 `train.py` 的 `{log_root_path}/{timestamp}_{run_name}/model_{name}.pt` 命名约定，确保 Stage4 蒸馏的 `get_checkpoint_path()` 能正确解析。
+
+**目录结构**：
+
+```
+logs/rsl_rl/
+├── Go2-Loco-Skill-Walk-Mid360Depth-10Hz/           ← 旧环境实验目录（teacher PPO 训练）
+│   └── {stage3_run}/                               ← 已有：Stage3 训练 run
+│       └── model_6000.pt                           ← ① 输入源：旧版 teacher checkpoint（任意迭代）
+│
+└── Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/       ← 新环境实验目录（GRU 蒸馏）
+    ├── {existing_runs}/                            ← 已有：GRU PPO 训练的 run 目录
+    │   └── model_XXXX.pt
+    │
+    └── {timestamp}_pretrain_teacher/               ← ② 预训练输出（脚本自动创建）
+        ├── model_teacher.pt                        ← ③ 完整 teacher checkpoint（含 encoder）
+        ├── height_scan_encoder.pt                  ← encoder 单独权重
+        ├── privilege_encoder.pt                    ← encoder 单独权重
+        └── params/                                 ← ④ 配置记录
+            └── pretrain_config.yaml
+```
+
+**路径解析逻辑**（脚本内部，参考 `train.py` 第 146-156 行）：
+
+```python
+# === 输入：解析旧版/新版 teacher checkpoint ===
+# 方式一：--checkpoint 直接指定绝对路径
+#   例: --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/{run}/model_6000.pt
+# 方式二：--load_run + --load_checkpoint（类似 train.py resume）
+#   脚本在 log_root_path 下用 get_checkpoint_path() 自动查找
+
+if args.checkpoint:
+    teacher_path = Path(args.checkpoint)
+elif args.load_run:
+    # 从旧环境目录查找（默认）或从 --source_experiment 指定
+    source_root = f"logs/rsl_rl/{args.source_experiment or 'Go2-Loco-Skill-Walk-Mid360Depth-10Hz'}"
+    teacher_path = get_checkpoint_path(source_root, args.load_run, args.load_checkpoint)
+
+# === 输出：按 train.py 风格生成目录 ===
+output_experiment = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"  # 硬编码目标环境
+output_root = f"logs/rsl_rl/{output_experiment}"
+output_run = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_pretrain_teacher"
+output_dir = os.path.join(output_root, output_run)
+
+# 保存路径
+combined_path = os.path.join(output_dir, "model_teacher.pt")     # Stage4 加载这个
+hs_encoder_path = os.path.join(output_dir, "height_scan_encoder.pt")
+priv_encoder_path = os.path.join(output_dir, "privilege_encoder.pt")
+```
+
+**与 Stage4 蒸馏的衔接**：
+
+```python
+# Stage4 蒸馏 agent config（rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru.py）中：
+@configclass
+class UnitreeGo2LocoSkillDistillationGRURunnerCfg(RslRlDistillationRunnerCfg):
+    experiment_name = "Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU"  # ← 与预训练输出目录一致
+    load_run = ".*_pretrain_teacher"     # ← regex 匹配预训练 run
+    load_checkpoint = "model_teacher"    # ← 匹配完整 teacher checkpoint
+    # ...
+```
+
+这样 `train.py` 在 Stage4 蒸馏启动时：
+1. `log_root_path = logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU`
+2. `get_checkpoint_path(log_root_path, ".*_pretrain_teacher", "model_teacher")`
+3. → 解析到 `{timestamp}_pretrain_teacher/model_teacher.pt`
+4. `DistillationRunner.load()` 加载 `model_state_dict` → teacher ActorCritic 权重
+5. `StudentTeacherDepthImageRecurrent.__init__()` 额外提取 `height_scan_encoder` / `privilege_encoder` key
+
+**关键约定**：
+
+| 约定 | 值 | 理由 |
+|------|-----|------|
+| 输出实验目录 | `Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU` | 与 Stage4 distillation 的 `experiment_name` 一致，`get_checkpoint_path` 能自动匹配 |
+| 输出 run 命名 | `{timestamp}_pretrain_teacher` | 遵循 `train.py` 的 `{timestamp}_{run_name}` 格式；`load_run` 可用 regex `.*_pretrain_teacher` 匹配 |
+| 完整 checkpoint 名 | `model_teacher.pt` | 区别于训练时的 `model_{iter}.pt`，语义明确 |
+| encoder 单独权重 | `height_scan_encoder.pt` / `privilege_encoder.pt` | 方便仅替换 encoder 权重而不动 teacher MLP |
+
 ##### 数据多样性增强 — 推力扰动事件
 
 **问题**：教师策略处于稳态分布（已收敛的 PPO 策略），rollout 数据缺乏非稳态样本（如受外力扰动后的恢复过程），导致 AutoEncoder 对边缘场景泛化不足。
@@ -600,26 +706,58 @@ def _apply_push_perturbation(env, step_counter, last_push_step):
 
 ##### 命令行接口
 
+**方式一：直接指定 checkpoint 路径（推荐）**
+
 ```bash
 ./isaaclab.sh -p scripts/tools/pretrain_teacher_encoders.py \
     --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-Play \
     --agent rsl_rl_cfg_entry_point \
-    --checkpoint /path/to/stage3/model_6000.pt \           # ① 输入：Stage3 教师 checkpoint
-    --encoder_checkpoint /path/to/existing_encoders.pt \   # ② 可选：已有 encoder 权重（warm start）
+    --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/{run}/model_6000.pt \
     --total_steps 2000 \
     --train_every 100 \
-    --push_interval 300 \                                   # ③ 推力扰动间隔（0 = 禁用）
-    --output_dir logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/pretrained_encoders
+    --push_interval 300
+```
+
+**方式二：按 train.py 风格自动查找（load_run + load_checkpoint）**
+
+```bash
+./isaaclab.sh -p scripts/tools/pretrain_teacher_encoders.py \
+    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-Play \
+    --agent rsl_rl_cfg_entry_point \
+    --source_experiment Go2-Loco-Skill-Walk-Mid360Depth-10Hz \
+    --load_run ".*stage3.*" \
+    --load_checkpoint "model_6000" \
+    --total_steps 2000 \
+    --train_every 100 \
+    --push_interval 300
 ```
 
 **路径策略说明**：
 
 | 参数 | 含义 | 默认值 |
 |------|------|--------|
-| `--checkpoint` | **① 教师策略 checkpoint 路径**。必须是 Stage3 PPO 训练产出的 `.pt` 文件。脚本从中加载 `model_state_dict` → 构建 `OnPolicyRunner` → 提取 `act_inference` 用于 rollout | 必填，无默认值 |
-| `--encoder_checkpoint` | **② 已有 encoder 权重路径**（可选）。若提供，脚本检测其中是否含 `height_scan_encoder` / `privilege_encoder` key，有则加载作为 warm start；无则忽略并从随机初始化开始。用于：<br>• 恢复中断的预训练<br>• 未来新版教师策略自带 encoder 时直接加载 | 默认 None（随机初始化） |
-| `--output_dir` | **③ encoder 权重输出目录**。定期保存 `height_scan_encoder_{N}.pt` 和 `privilege_encoder_{N}.pt`；最终保存不带序号的 `.pt`。同时输出合并版 `teacher_with_encoders.pt`（含原始教师权重 + encoder 权重） | 默认：`{checkpoint所在目录}/pretrained_encoders/` |
-| `--push_interval` | **④ 推力扰动间隔**（环境步）。设为 0 则禁用推力扰动。推荐 200~500 | 默认 300 |
+| `--checkpoint` | **直接指定 teacher checkpoint 绝对路径**。优先级最高。支持旧版（`Go2-…-10Hz/`）或新版（`Go2-…-10Hz-GRU/`）目录下的任意 `.pt` 文件 | 无（与 `--load_run` 二选一） |
+| `--load_run` | **按 regex 匹配 run 目录名**（参考 `train.py` 的 `load_run`）。与 `--load_checkpoint` 配合使用，调用 `get_checkpoint_path()` 自动查找 | 无 |
+| `--load_checkpoint` | **按 regex 匹配 checkpoint 文件名**。配合 `--load_run` 使用 | `".*"`（最新） |
+| `--source_experiment` | **输入源实验目录名**。仅在 `--load_run` 模式下生效，指定从哪个实验目录查找 teacher checkpoint | `Go2-Loco-Skill-Walk-Mid360Depth-10Hz` |
+| `--encoder_checkpoint` | **已有 encoder 权重路径**（可选）。用于 warm start：<br>• 恢复中断的预训练<br>• 未来新版教师策略自带 encoder 时直接加载 | None（随机初始化） |
+| `--total_steps` | 总环境 rollout 步数 | 2000 |
+| `--train_every` | 每 N 环境步训练一次 encoder | 100 |
+| `--push_interval` | 推力扰动间隔（环境步）。0 = 禁用 | 300 |
+
+**输出路径（自动生成，对齐 train.py 风格）**：
+
+```
+logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/
+└── {timestamp}_pretrain_teacher/
+    ├── model_teacher.pt           ← 完整 teacher checkpoint（含 encoder）
+    ├── height_scan_encoder.pt     ← encoder 单独权重
+    ├── privilege_encoder.pt       ← encoder 单独权重
+    └── params/
+        └── pretrain_config.yaml   ← 预训练超参数记录
+```
+
+> **与旧方案的关键差异**：不再使用 `--output_dir` 手动指定路径，改为自动按 `{experiment_name}/{timestamp}_pretrain_teacher/` 生成，输出实验目录硬编码为 `Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU`，确保 Stage4 蒸馏的 `get_checkpoint_path()` 能正确解析。
 
 ##### 与后续 Step 的关系
 
@@ -635,7 +773,8 @@ Step 4 (StudentTeacherDepthImageRecurrent) ←────────┘ 加载
 
 ```python
 # StudentTeacherDepthImageRecurrent.__init__() 中
-checkpoint = torch.load("teacher_with_encoders.pt", weights_only=False, map_location=device)
+# checkpoint 由 DistillationRunner.load() 从 model_teacher.pt 加载后传入
+checkpoint = torch.load("model_teacher.pt", weights_only=False, map_location=device)
 if "height_scan_encoder" in checkpoint:
     self.height_scan_encoder.load_state_dict(checkpoint["height_scan_encoder"])
     self.privilege_encoder.load_state_dict(checkpoint["privilege_encoder"])
