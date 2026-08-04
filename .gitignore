@@ -43,6 +43,10 @@ docker/.container.cfg
 docker/artifacts/
 *.tmp
 
+# Generated diff files (for cross-machine sync)
+git.diff
+*.diff
+
 # Doc Outputs
 **/docs/_build/*
 **/generated/*
