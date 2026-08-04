@@ -308,7 +308,7 @@ class PrivilegeEncoder(nn.Module):
 
 ---
 
-#### 预训练脚本详细设计 — `scripts/tools/pretrain_teacher_encoders.py`
+#### 预训练脚本详细设计 — `scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py`
 
 ##### 整体架构
 
@@ -709,11 +709,12 @@ def _apply_push_perturbation(env, step_counter, last_push_step):
 **方式一：直接指定 checkpoint 路径（推荐）**
 
 ```bash
-./isaaclab.sh -p scripts/tools/pretrain_teacher_encoders.py \
-    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-Play \
+./isaaclab.sh -p scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py \
+    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher \
     --agent rsl_rl_cfg_entry_point \
     --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/{run}/model_6000.pt \
-    --total_steps 2000 \
+    --headless --num_envs 1024 \
+    --total_steps 20000 \
     --train_every 100 \
     --push_interval 300
 ```
@@ -721,13 +722,14 @@ def _apply_push_perturbation(env, step_counter, last_push_step):
 **方式二：按 train.py 风格自动查找（load_run + load_checkpoint）**
 
 ```bash
-./isaaclab.sh -p scripts/tools/pretrain_teacher_encoders.py \
-    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-Play \
+./isaaclab.sh -p scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py \
+    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher \
     --agent rsl_rl_cfg_entry_point \
     --source_experiment Go2-Loco-Skill-Walk-Mid360Depth-10Hz \
     --load_run ".*stage3.*" \
     --load_checkpoint "model_6000" \
-    --total_steps 2000 \
+    --headless --num_envs 1024 \
+    --total_steps 20000 \
     --train_every 100 \
     --push_interval 300
 ```

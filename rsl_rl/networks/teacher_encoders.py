@@ -111,13 +111,13 @@ class PrivilegeEncoder(nn.Module):
         → Linear(128→input_dim) → [B, input_dim]
 
     Args:
-        input_dim: Dimension of the input privilege vector. Defaults to 60.
+        input_dim: Dimension of the input privilege vector. Defaults to 54 (18 per frame * 3 history).
         latent_dim: Dimension of the latent space. Defaults to 32.
         activation: Activation function name. Defaults to ``"elu"``.
 
     """
 
-    def __init__(self, input_dim: int = 60, latent_dim: int = 32, activation: str = "elu"):
+    def __init__(self, input_dim: int = 54, latent_dim: int = 32, activation: str = "elu"):
         super().__init__()
 
         self.input_dim = input_dim

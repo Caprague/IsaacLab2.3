@@ -728,7 +728,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     stage: str = "stage1"
     """训练阶段: stage1(低速向前)/stage2(全向移动，基础模型)/stage3(全向移动，mid360模型)/stage4(student训练，启用mid360深度图)"""
 
-    environment: str = "local"
+    environment: str = "server"
     """运行环境: "local" (本机) 或 "server" (服务器)"""
 
     use_simple_lidar: bool = True
@@ -1048,10 +1048,10 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
         self.scene.env_spacing = 2.5
         self.episode_length_s = 30.0
 
-        # 速度指令调整
-        self.commands.base_velocity.rel_vel_world_envs = 0.75
-        self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
+        # # 速度指令调整
+        # self.commands.base_velocity.rel_vel_world_envs = 0.75
+        # self.commands.base_velocity.ranges.lin_vel_x = (0.8, 1.2)
+        # self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
 
         # Play 播放时，机器人生成位置随机化，不跟随地形等级
         self.scene.terrain.max_init_terrain_level = None
@@ -1066,4 +1066,47 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
 
         # 事件设定调整
         self.events.push_robot = None
+
+
+# ============================================================================================================
+# 定义环境管理器 CFG - 教师编码器预训练专用
+
+
+class Go2LocomotionSkillEnvCfg_PretrainTeacher(Go2LocomotionSkillEnvCfg):
+    """Configuration for teacher encoder pretraining with push perturbations.
+
+    继承 Play 配置（stage3, 32 envs, 无课程学习），并启用更频繁的随机推动事件
+    以增加数据多样性，帮助 AutoEncoder 学习更鲁棒的特征表示。
+    """
+
+    def __post_init__(self) -> None:
+        self.stage = "stage3"
+        self.use_simple_lidar = False
+
+        # post init of parent
+        super().__post_init__()
+
+        self.scene.num_envs = 256
+        self.scene.env_spacing = 2.5
+        self.episode_length_s = 20.0
+
+        self.scene.terrain.max_init_terrain_level = None
+        self.scene.terrain.terrain_generator.curriculum = False
+
+        # 增强推动事件参数以增加数据多样性
+        self.events.push_robot = EventTerm(
+            func=mdp.push_by_setting_velocity,
+            mode="interval",
+            interval_range_s=(1.5, 6.0),
+            params={
+                "velocity_range": {
+                    "x": (-0.8, 0.8),
+                    "y": (-0.8, 0.8),
+                    "z": (-0.5, 0.5),
+                    "roll": (-0.3, 0.3),
+                    "pitch": (-0.3, 0.3),
+                    "yaw": (-0.5, 0.5),
+                }
+            },
+        )
 

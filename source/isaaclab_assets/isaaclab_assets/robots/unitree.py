@@ -26,7 +26,7 @@ from isaaclab.actuators import ActuatorNetMLPCfg, DCMotorCfg, ImplicitActuatorCf
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 
-ENVIRONMENT: str = "local"
+ENVIRONMENT: str = "server"
 """运行环境: "local" (本机) 或 "server" (服务器)，修改此变量自动切换所有USD路径"""
 
 USD_PATHS = {

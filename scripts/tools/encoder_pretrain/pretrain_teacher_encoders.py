@@ -18,16 +18,35 @@ Workflow:
     3. Run the teacher policy to collect mapScans / privileged obs into a buffer.
     4. Periodically train both autoencoders via MSE reconstruction loss.
     5. Save the encoder weights (decoder discarded) for Stage4 student training.
+
+Usage:
+    ./isaaclab.sh -p scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py \
+        --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher \
+        --agent rsl_rl_cfg_entry_point \
+        --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/{run}/model_16000.pt \
+        --headless --num_envs 1024 --total_steps 20000 --train_every 100
+
+    ./isaaclab.sh -p scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py \
+        --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher \
+        --agent rsl_rl_cfg_entry_point \
+        --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz/2026-07-31_00-15-36/model_16000.pt \
+        --headless --num_envs 1024 --total_steps 20000 --train_every 100
+
+See Also:
+    docs/go2_analysis_docs/go2_gru_student_policy_architecture_redesign.md
 """
 
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import os
+import shutil
 import sys
 
 from isaaclab.app import AppLauncher
 
-# local imports
+# local imports (add rsl_rl dir to path to avoid ROS2 "scripts" package collision)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reinforcement_learning", "rsl_rl"))
 import cli_args  # isort: skip
 
 # add argparse arguments
@@ -41,43 +60,21 @@ parser.add_argument(
     default="rsl_rl_cfg_entry_point",
     help="Name of the RL agent configuration entry point.",
 )
-parser.add_argument(
-    "--checkpoint",
-    type=str,
-    default=None,
-    help="Direct path to teacher checkpoint (.pt).",
-)
+# --checkpoint and --load_run are already defined by cli_args.add_rsl_rl_args()
 parser.add_argument(
     "--encoder_checkpoint",
     type=str,
     default=None,
     help="Path to existing encoder weights for warm start.",
 )
+
 parser.add_argument(
-    "--load_run",
-    type=str,
-    default=None,
-    help="Regex matching run directory name for checkpoint lookup.",
-)
-parser.add_argument(
-    "--load_checkpoint",
-    type=str,
-    default=".*",
-    help="Regex matching checkpoint filename for lookup.",
-)
-parser.add_argument(
-    "--source_experiment",
-    type=str,
-    default="Go2-Loco-Skill-Walk-Mid360Depth-10Hz",
-    help="Source experiment name containing teacher checkpoints.",
-)
-parser.add_argument(
-    "--num_envs", type=int, default=None, help="Number of environments to simulate."
+    "--num_envs", type=int, default=1024, help="Number of environments to simulate."
 )
 parser.add_argument(
     "--total_steps",
     type=int,
-    default=2000,
+    default=20000,
     help="Total environment rollout steps.",
 )
 parser.add_argument(
@@ -95,7 +92,7 @@ parser.add_argument(
 parser.add_argument(
     "--batch_size",
     type=int,
-    default=4096,
+    default=2048,
     help="Training batch size.",
 )
 parser.add_argument(
@@ -105,19 +102,35 @@ parser.add_argument(
     help="Save checkpoint every N training iterations.",
 )
 parser.add_argument(
-    "--push_interval",
-    type=int,
-    default=300,
-    help="Push perturbation interval. 0 = disabled.",
-)
-parser.add_argument(
     "--seed", type=int, default=None, help="Seed for the environment."
+)
+# --gui: override default headless mode to show the simulator window
+parser.add_argument(
+    "--gui", action="store_true", help="Show simulator GUI (default: headless mode for pretraining)."
 )
 # append RSL-RL cli arguments (required by update_rsl_rl_cfg)
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+
+# Pretraining defaults to headless mode for performance;
+# use --gui to show the simulator window
+if not args_cli.gui:
+    args_cli.headless = True
+
+# validate required arguments before launching Isaac Sim
+if not args_cli.task:
+    parser.error("--task is required. Example: --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-PretrainTeacher")
+if not args_cli.checkpoint:
+    parser.error("--checkpoint is required. Example: --checkpoint logs/rsl_rl/.../model_6000.pt")
+
+# ---- DEBUG: CLI arguments ----
+print("=" * 60)
+print("[DEBUG] CLI Arguments:")
+for k, v in sorted(vars(args_cli).items()):
+    print(f"  {k}: {v}")
+print("=" * 60)
 
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
@@ -149,7 +162,6 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 from rsl_rl.networks.teacher_encoders import HeightScanEncoder, PrivilegeEncoder
@@ -174,23 +186,31 @@ class ObsBuffer:
     privileged: torch.Tensor = field(init=False)
     write_ptr: int = field(default=0, init=False)
     _total_written: int = field(default=0, init=False)
+    _initialized: bool = field(default=False, init=False)
     full: bool = field(default=False, init=False)
 
     def __post_init__(self):
-        """Allocate the fixed-size buffers."""
-        self.map_scans = torch.zeros(self.capacity, 187)
-        self.privileged = torch.zeros(self.capacity, 60)
+        """Allocation is deferred until the first add() call to infer dims."""
+
+    def _init_buffers(self, ms_dim: int, priv_dim: int) -> None:
+        """Allocate fixed-size buffers based on observed dimensions."""
+        self.map_scans = torch.zeros(self.capacity, ms_dim)
+        self.privileged = torch.zeros(self.capacity, priv_dim)
+        self._initialized = True
 
     def add(self, ms: torch.Tensor, priv: torch.Tensor) -> None:
         """Add a batch of observations to the circular buffer.
 
         Handles wrap-around correctly when writing past the buffer end.
+        On first call, lazily allocates buffers based on observed dims.
 
         Args:
-            ms: mapScans tensor of shape ``[N, 187]`` (CPU).
-            priv: privileged tensor of shape ``[N, 60]`` (CPU).
+            ms: mapScans tensor of shape ``[N, ms_dim]`` (CPU).
+            priv: privileged tensor of shape ``[N, priv_dim]`` (CPU).
 
         """
+        if not self._initialized:
+            self._init_buffers(ms.shape[1], priv.shape[1])
         n = ms.shape[0]
         space_to_end = self.capacity - self.write_ptr
         if n <= space_to_end:
@@ -220,48 +240,6 @@ class ObsBuffer:
         return self.map_scans[:n], self.privileged[:n]
 
 
-def _apply_push_perturbation(
-    env: RslRlVecEnvWrapper,
-    step_counter: int,
-    last_push_step: int,
-    push_interval: int,
-) -> int:
-    """Apply a mild random velocity push to robots for data diversity.
-
-    Args:
-        env: The wrapped simulation environment.
-        step_counter: Current environment step count.
-        last_push_step: Step count when push was last applied.
-        push_interval: Minimum steps between successive pushes.
-
-    Returns:
-        Updated ``last_push_step`` (unchanged if no push was applied).
-
-    """
-    if push_interval <= 0:
-        return last_push_step
-    if step_counter - last_push_step < push_interval:
-        return last_push_step
-
-    num_envs = env.num_envs
-    device = env.unwrapped.device
-    rand_vel = torch.stack(
-        [
-            torch.rand(num_envs, device=device) * 0.5 - 0.25,  # x: [-0.25, 0.25]
-            torch.rand(num_envs, device=device) * 0.5 - 0.25,  # y: [-0.25, 0.25]
-            torch.rand(num_envs, device=device) * 0.3,          # z: [0, 0.3]
-            torch.rand(num_envs, device=device) * 0.2 - 0.1,   # roll: [-0.1, 0.1]
-            torch.rand(num_envs, device=device) * 0.2 - 0.1,   # pitch: [-0.1, 0.1]
-            torch.rand(num_envs, device=device) * 0.3 - 0.15,  # yaw: [-0.15, 0.15]
-        ],
-        dim=1,
-    )
-    env.unwrapped.root_physx_view.set_root_velocities(
-        rand_vel, env.unwrapped._robot_actor_indices
-    )
-    return step_counter
-
-
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(
     env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg,
@@ -277,16 +255,9 @@ def main(
     # ------------------------------------------------------------------
     # 1. Resolve checkpoint path
     # ------------------------------------------------------------------
-    if args_cli.checkpoint:
-        resume_path = retrieve_file_path(args_cli.checkpoint)
-    else:
-        log_root_path = os.path.join(
-            "logs", "rsl_rl", args_cli.source_experiment
-        )
-        log_root_path = os.path.abspath(log_root_path)
-        resume_path = get_checkpoint_path(
-            log_root_path, args_cli.load_run, args_cli.load_checkpoint
-        )
+    if not args_cli.checkpoint:
+        raise ValueError("--checkpoint is required. Please specify the path to the teacher checkpoint.")
+    resume_path = retrieve_file_path(args_cli.checkpoint)
     print(f"[INFO] Loading teacher checkpoint from: {resume_path}")
 
     # ------------------------------------------------------------------
@@ -318,6 +289,16 @@ def main(
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
+    # ---- DEBUG: Environment info ----
+    print("=" * 60)
+    print(f"[DEBUG] Environment:")
+    print(f"  num_envs:       {env.num_envs}")
+    print(f"  device:         {env.unwrapped.device}")
+    print(f"  env_cfg.seed:   {env_cfg.seed}")
+    print(f"  task:           {args_cli.task}")
+    print(f"  action_space:   {env.unwrapped.single_action_space}")
+    print("=" * 60)
+
     # ------------------------------------------------------------------
     # 3. Load teacher policy
     # ------------------------------------------------------------------
@@ -333,6 +314,18 @@ def main(
     except AttributeError:
         policy_nn = runner.alg.actor_critic
 
+    # ---- DEBUG: Teacher checkpoint info ----
+    print("=" * 60)
+    print(f"[DEBUG] Teacher Checkpoint:")
+    print(f"  checkpoint_path: {resume_path}")
+    # read iteration from checkpoint file
+    ckpt = torch.load(resume_path, weights_only=False, map_location="cpu")
+    print(f"  checkpoint_iter: {ckpt.get('iter', 'N/A')}")
+    print(f"  policy type:     {type(policy_nn).__name__}")
+    teacher_params = sum(p.numel() for p in policy_nn.parameters())
+    print(f"  teacher params:  {teacher_params:,}")
+    print("=" * 60)
+
     # ------------------------------------------------------------------
     # 4. Prepare output directory
     # ------------------------------------------------------------------
@@ -342,6 +335,20 @@ def main(
         f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_pretrain_teacher"
     )
     output_dir = os.path.join(output_root, output_run)
+
+    # Clean up old incomplete run folders (those without model_teacher.pt)
+    # so the log directory doesn't accumulate empty folders from killed runs
+    if os.path.isdir(output_root):
+        for entry in os.listdir(output_root):
+            if not entry.endswith("_pretrain_teacher"):
+                continue
+            old_dir = os.path.join(output_root, entry)
+            if os.path.isdir(old_dir) and not os.path.exists(
+                os.path.join(old_dir, "model_teacher.pt")
+            ):
+                shutil.rmtree(old_dir)
+                print(f"[INFO] Cleaned up incomplete run folder: {entry}")
+
     os.makedirs(os.path.join(output_dir, "params"), exist_ok=True)
     print(f"[INFO] Output directory: {output_dir}")
 
@@ -349,18 +356,15 @@ def main(
     # 5. Create AutoEncoder models + optimizers
     # ------------------------------------------------------------------
     device = env.unwrapped.device
+    mse = nn.MSELoss()
 
     hs_ae = HeightScanEncoder().to(device)
     priv_ae = PrivilegeEncoder().to(device)
 
     # warm start from existing encoder weights
     if args_cli.encoder_checkpoint:
-        print(
-            f"[INFO] Loading encoder weights from: {args_cli.encoder_checkpoint}"
-        )
-        enc_state = torch.load(
-            args_cli.encoder_checkpoint, weights_only=True, map_location=device
-        )
+        print(f"[INFO] Loading encoder weights from: {args_cli.encoder_checkpoint}")
+        enc_state = torch.load(args_cli.encoder_checkpoint, weights_only=True, map_location=device)
         if "height_scan_encoder" in enc_state:
             hs_ae.encoder.load_state_dict(enc_state["height_scan_encoder"])
         else:
@@ -370,10 +374,17 @@ def main(
 
     hs_ae.train()
     priv_ae.train()
-
     hs_opt = torch.optim.Adam(hs_ae.parameters(), lr=1e-3)
     priv_opt = torch.optim.Adam(priv_ae.parameters(), lr=1e-3)
-    mse = nn.MSELoss()
+
+    # ---- DEBUG: Encoder model info ----
+    print("=" * 60)
+    print("[DEBUG] Encoder Models:")
+    hs_params = sum(p.numel() for p in hs_ae.parameters())
+    priv_params = sum(p.numel() for p in priv_ae.parameters())
+    print(f"  HeightScanEncoder: {hs_params:,} params, latent_dim={hs_ae.latent_dim}")
+    print(f"  PrivilegeEncoder:  {priv_params:,} params, latent_dim={priv_ae.latent_dim}, input_dim={priv_ae.input_dim}")
+    print("=" * 60)
 
     # ------------------------------------------------------------------
     # 6. Create observation buffer
@@ -385,15 +396,26 @@ def main(
     # ------------------------------------------------------------------
     obs = env.get_observations()
 
+    # ---- DEBUG: Observation shapes ----
+    print("=" * 60)
+    print("[DEBUG] Observation TensorDict keys and shapes:")
+    for key, val in obs.items():
+        if val is not None and isinstance(val, torch.Tensor):
+            print(f"  {key:20s}: {list(val.shape)}  (dtype={val.dtype}, device={val.device})")
+        elif val is not None:
+            print(f"  {key:20s}: {type(val).__name__} (non-tensor)")
+        else:
+            print(f"  {key:20s}: None")
+    print(f"  buffer capacity: {buffer.capacity:,}, batch_size: {args_cli.batch_size}")
+    print("=" * 60)
+
     total_steps = args_cli.total_steps
     train_every = args_cli.train_every
     train_iters = args_cli.train_iters
     batch_size = args_cli.batch_size
     save_every = args_cli.save_every
-    push_interval = args_cli.push_interval
 
     train_count = 0
-    last_push_step = 0
 
     print(
         f"[INFO] Starting Play+Train loop: {total_steps} steps, "
@@ -407,13 +429,14 @@ def main(
             obs, _, dones, _ = env.step(actions)
             policy_nn.reset(dones)
 
+        # ---- DEBUG: step summary (every 50 steps) ----
+        if step % 50 == 0:
+            print(f"[DEBUG] step={step:05d}: "
+                  f"action_range=[{actions.min().item():.4f}, {actions.max().item():.4f}], "
+                  f"buffer_size={buffer._total_written:,}")
+
         # --- Collect observations to CPU buffer ---
         buffer.add(obs["mapScans"].cpu(), obs["privileged"].cpu())
-
-        # --- Apply push perturbation ---
-        last_push_step = _apply_push_perturbation(
-            env, step, last_push_step, push_interval
-        )
 
         # --- Train: every train_every steps ---
         if step > 0 and step % train_every == 0:
@@ -424,6 +447,25 @@ def main(
                     f"need {batch_size}. Skipping training at step {step}."
                 )
                 continue
+
+            # ---- DEBUG: first training batch dimensions ----
+            if train_count == 0:
+                print("=" * 60)
+                print(f"[DEBUG] First training event at step={step}:")
+                print(f"  ms_data shape:   {list(ms_data.shape)}")
+                print(f"  priv_data shape: {list(priv_data.shape)}")
+                print(f"  batch_size:      {batch_size}")
+                print(f"  train_iters:     {train_iters}")
+                # test forward pass
+                test_batch = ms_data[:2].to(device)
+                with torch.no_grad():
+                    recon = hs_ae(test_batch)
+                print(f"  HS test: input={list(test_batch.shape)} -> output={list(recon.shape)}")
+                test_batch = priv_data[:2].to(device)
+                with torch.no_grad():
+                    recon = priv_ae(test_batch)
+                print(f"  Priv test: input={list(test_batch.shape)} -> output={list(recon.shape)}")
+                print("=" * 60)
 
             # Train HeightScanEncoder
             hs_loss_sum = 0.0
@@ -500,6 +542,24 @@ def main(
         priv_ae.encoder.state_dict(),
         os.path.join(output_dir, "privilege_encoder.pt"),
     )
+
+    # ---- DEBUG: final save summary ----
+    print("=" * 60)
+    print("[DEBUG] Final Save Summary:")
+    print(f"  train_count:        {train_count}")
+    print(f"  output_dir:         {output_dir}")
+    hs_sd = hs_ae.encoder.state_dict()
+    priv_sd = priv_ae.encoder.state_dict()
+    print(f"  HS encoder keys:    {list(hs_sd.keys())[:4]}... ({len(hs_sd)} total)")
+    print(f"  Priv encoder keys:  {list(priv_sd.keys())[:4]}... ({len(priv_sd)} total)")
+    print(f"  model_teacher.pt keys: {list(combined.keys())}")
+    # show a sample weight shape
+    first_key = list(hs_sd.keys())[0]
+    print(f"  HS '{first_key}' shape: {list(hs_sd[first_key].shape)}")
+    first_key = list(priv_sd.keys())[0]
+    print(f"  Priv '{first_key}' shape: {list(priv_sd[first_key].shape)}")
+    print("=" * 60)
+
     print(
         f"[INFO] Final outputs saved to: {output_dir}\n"
         f"  - model_teacher.pt\n"

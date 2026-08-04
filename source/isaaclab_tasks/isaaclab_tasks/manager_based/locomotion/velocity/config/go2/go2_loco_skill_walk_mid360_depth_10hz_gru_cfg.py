@@ -728,7 +728,7 @@ class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     stage: str = "stage1"
     """训练阶段: stage1(低速向前)/stage2(全向移动，基础模型)/stage3(全向移动，mid360模型)/stage4(student训练，启用mid360深度图)"""
 
-    environment: str = "local"
+    environment: str = "server"
     """运行环境: "local" (本机) 或 "server" (服务器)"""
 
     use_simple_lidar: bool = True
