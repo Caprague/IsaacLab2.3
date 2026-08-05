@@ -28,8 +28,8 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 STAGED_FILES=$(git diff --cached --name-only)
 UNSTAGED_FILES=$(git diff --name-only)
 
-STAGED_COUNT=$(echo "$STAGED_FILES" | grep -c '.' 2>/dev/null || echo "0")
-UNSTAGED_COUNT=$(echo "$UNSTAGED_FILES" | grep -c '.' 2>/dev/null || echo "0")
+STAGED_COUNT=$(git diff --cached --name-only | wc -l)
+UNSTAGED_COUNT=$(git diff --name-only | wc -l)
 
 echo "============================================"
 echo "  Git Diff 生成器 (未提交修改)"

@@ -59,6 +59,71 @@ class DistillationRunner(OnPolicyRunner):
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
 
+    def load(self, path: str, load_optimizer: bool = True, map_location: str | None = None) -> dict:
+        """Load model checkpoint, including pretrained teacher encoder weights.
+
+        Extends ``OnPolicyRunner.load()`` to also load ``HeightScanEncoder`` and
+        ``PrivilegeEncoder`` weights from the checkpoint (e.g., ``model_teacher.pt``
+        produced by ``pretrain_teacher_encoders.py``). These weights are loaded and
+        frozen for distillation training.
+
+        When loading from a teacher PPO checkpoint (``resumed_training == False``),
+        the encoder weights are loaded from the top-level checkpoint keys.
+        When resuming from a distillation checkpoint (``resumed_training == True``),
+        the encoders are already part of ``model_state_dict`` and need no separate
+        loading.
+
+        Args:
+            path: Path to the checkpoint file.
+            load_optimizer: Whether to load the optimizer state. Defaults to ``True``.
+            map_location: Device to map tensors to. Defaults to ``None``.
+
+        Returns:
+            The ``infos`` dict from the checkpoint.
+
+        """
+        loaded_dict = torch.load(path, weights_only=False, map_location=map_location)
+
+        # Load model (teacher MLP from PPO, or full student from distillation checkpoint)
+        resumed_training = self.alg.policy.load_state_dict(loaded_dict["model_state_dict"])
+
+        # Load optimizer if resuming from a distillation checkpoint
+        if load_optimizer and resumed_training and "optimizer_state_dict" in loaded_dict:
+            self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
+        if resumed_training:
+            self.current_learning_iteration = loaded_dict["iter"]
+
+        # Load pretrained teacher encoder weights (only when loading from a teacher
+        # checkpoint, not resuming from a student checkpoint where encoders are
+        # already in model_state_dict)
+        if not resumed_training and hasattr(self.alg.policy, "height_scan_encoder"):
+            enc_loaded = False
+            if "height_scan_encoder" in loaded_dict:
+                self.alg.policy.height_scan_encoder.load_state_dict(
+                    loaded_dict["height_scan_encoder"]
+                )
+                enc_loaded = True
+            if "privilege_encoder" in loaded_dict:
+                self.alg.policy.privilege_encoder.load_state_dict(
+                    loaded_dict["privilege_encoder"]
+                )
+                enc_loaded = True
+            if enc_loaded:
+                # Freeze encoder parameters for distillation
+                for p in self.alg.policy.height_scan_encoder.parameters():
+                    p.requires_grad = False
+                for p in self.alg.policy.privilege_encoder.parameters():
+                    p.requires_grad = False
+                self.alg.policy.height_scan_encoder.eval()
+                self.alg.policy.privilege_encoder.eval()
+                print("[INFO] Loaded and froze pretrained teacher encoders from checkpoint")
+            else:
+                print("[WARN] Checkpoint does not contain pretrained encoder weights!")
+                print("[WARN] Teacher encoders will remain randomly initialized.")
+                print("[WARN] Run pretrain_teacher_encoders.py to generate encoder weights first.")
+
+        return loaded_dict.get("infos", {})
+
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False) -> None:
         # Initialize writer
         self._prepare_logging_writer()

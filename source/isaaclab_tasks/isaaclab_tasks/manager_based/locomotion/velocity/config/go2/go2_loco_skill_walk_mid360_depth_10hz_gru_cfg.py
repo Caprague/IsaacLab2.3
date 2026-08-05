@@ -3,6 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU \
+    --agent rsl_rl_distillation_cfg_entry_point \
+    --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/{run}_pretrain_teacher/model_teacher.pt \
+    --headless --num_envs 2048
+"""
 
 # ============================================================================================================
 # 导入资源
@@ -725,7 +732,7 @@ class CurriculumCfg:
 class Go2LocomotionSkillEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
-    stage: str = "stage1"
+    stage: str = "stage4"
     """训练阶段: stage1(低速向前)/stage2(全向移动，基础模型)/stage3(全向移动，mid360模型)/stage4(student训练，启用mid360深度图)"""
 
     environment: str = "server"
