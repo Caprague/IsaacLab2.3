@@ -7,7 +7,7 @@
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
     --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU \
     --agent rsl_rl_distillation_cfg_entry_point \
-    --checkpoint logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/{run}_pretrain_teacher/model_teacher.pt \
+    --checkpoint /home/ls_gms/Isaac/IsaacLab2.3/logs/rsl_rl/Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU/{run}_pretrain_teacher/model_teacher.pt \
     --headless --num_envs 2048
 """
 

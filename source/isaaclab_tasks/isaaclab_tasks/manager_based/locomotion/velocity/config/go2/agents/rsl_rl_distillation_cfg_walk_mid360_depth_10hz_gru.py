@@ -15,7 +15,7 @@ from isaaclab_rl.rsl_rl import (
 @configclass
 class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     num_steps_per_env = 60
-    max_iterations = 5001
+    max_iterations = 8001
     teacher_driving = True
     teacher_driving_switch_iter = 2500
     save_interval = 250
