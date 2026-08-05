@@ -99,12 +99,14 @@ class DistillationRunner(OnPolicyRunner):
         if not resumed_training and hasattr(self.alg.policy, "height_scan_encoder"):
             enc_loaded = False
             if "height_scan_encoder" in loaded_dict:
-                self.alg.policy.height_scan_encoder.load_state_dict(
+                # checkpoint stores encoder-only state_dict (hs_ae.encoder.state_dict()),
+                # so load into the .encoder submodule, not the full HeightScanEncoder
+                self.alg.policy.height_scan_encoder.encoder.load_state_dict(
                     loaded_dict["height_scan_encoder"]
                 )
                 enc_loaded = True
             if "privilege_encoder" in loaded_dict:
-                self.alg.policy.privilege_encoder.load_state_dict(
+                self.alg.policy.privilege_encoder.encoder.load_state_dict(
                     loaded_dict["privilege_encoder"]
                 )
                 enc_loaded = True
