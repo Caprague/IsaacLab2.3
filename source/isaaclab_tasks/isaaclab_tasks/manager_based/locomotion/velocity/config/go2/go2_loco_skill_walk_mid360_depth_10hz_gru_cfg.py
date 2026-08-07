@@ -327,6 +327,11 @@ class ObservationsCfg:
             self.enable_corruption = True   # Noised
             self.concatenate_terms = True
             self.history_length = 6
+            # Frame-major layout (B, H, D) so the GRU student can extract the latest
+            # proprioceptive frame via a time-major flatten (last D dims = latest frame).
+            # With the default per-term flatten, the group is term-major (B, H*D per term)
+            # and a tail slice does NOT yield the latest frame across all terms.
+            self.flatten_history_dim = False
 
     proprioception_noised: ProprioceptionNoised | None = None
 
@@ -1074,4 +1079,3 @@ class Go2LocomotionSkillEnvCfg_Play(Go2LocomotionSkillEnvCfg):
 
         # 事件设定调整
         self.events.push_robot = None
-

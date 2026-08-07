@@ -153,16 +153,25 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
 
         num_student_basic_obs = 0
         for g in self.student_prop_groups:
-            assert len(obs[g].shape) == 2, (
-                f"Student proprioceptive observation group '{g}' must be 1D (shape [B, D]), "
-                f"got shape {obs[g].shape}"
+            assert len(obs[g].shape) == 3, (
+                f"Student proprioceptive observation group '{g}' must be frame-major "
+                f"(shape [B, H, D]) so the latest frame can be extracted correctly. "
+                f"Set flatten_history_dim=False on the group in the env config. "
+                f"Got shape {obs[g].shape}"
             )
-            num_student_basic_obs += obs[g].shape[-1]
+            num_student_basic_obs += obs[g].numel() // obs[g].shape[0]
 
         # ── Dynamically compute proprioceptive features per frame ──
-        # The proprioceptive observations contain a history window of frames.
-        # We assume the last `proprio_per_frame` dimensions correspond to the latest frame.
+        # The proprioceptive observations must be frame-major (B, H, D): a time-major
+        # flatten (B, H*D) then places the latest frame in the last `proprio_per_frame`
+        # dims. This requires the env obs group to set flatten_history_dim=False; with
+        # the default per-term flatten the group is term-major and a tail slice would
+        # NOT yield the latest frame.
         history_length = 6  # Hard-coded: 6-frame history stack
+        assert obs[self.student_prop_groups[0]].shape[1] == history_length, (
+            f"Frame-major prop group history length ({obs[self.student_prop_groups[0]].shape[1]}) "
+            f"must match the hard-coded history length ({history_length})"
+        )
         assert num_student_basic_obs > 0, (
             f"Student proprioceptive observation dimension must be > 0, got {num_student_basic_obs}"
         )
@@ -407,6 +416,12 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
             - ``depth_img``: Depth image of shape ``[B, 1, 32, 180]`` in NCHW format.
             - ``prop_all``: Full proprioceptive history of shape ``[B, num_student_basic_obs]``
               (unnormalized, for normalization update).
+
+        Note:
+            Requires the proprioceptive obs groups to be frame-major (shape ``[B, H, D]``,
+            i.e. ``flatten_history_dim=False`` in the env config). The group is flattened
+            time-major here so that the last ``proprio_per_frame`` dims are exactly the
+            latest frame.
         """
         # ── Depth image ──
         depth_flat = obs[self.depth_obs_group]  # [B, 5761] (5760 pixels + 1 extra dim)
@@ -416,7 +431,9 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
 
         # ── Proprioceptive: concatenate all prop groups ──
         prop_list = [obs[g] for g in self.student_prop_groups]
-        prop_all = torch.cat(prop_list, dim=-1)  # [B, num_student_basic_obs]
+        # Frame-major (B, H, D) → time-major (B, H*D): frames are ordered oldest→newest,
+        # so the last `proprio_per_frame` dims are the latest frame.
+        prop_all = torch.cat(prop_list, dim=-1).reshape(prop_list[0].shape[0], -1)  # [B, num_student_basic_obs]
 
         # ── Latest frame only ──
         prop_latest = prop_all[:, -self.proprio_per_frame :]  # [B, proprio_per_frame]
