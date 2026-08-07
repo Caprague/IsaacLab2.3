@@ -40,7 +40,7 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     algorithm = RslRlDistillationAlgorithmCfg(
         num_learning_epochs=2,
         learning_rate=1.0e-3,
-        gradient_length=1,
+        gradient_length=10,
         optimizer="adam",
         loss_type="mse",
     )

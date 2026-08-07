@@ -29,7 +29,9 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
 
     2. **GRU temporal fusion**: Fuses the latest proprioceptive frame with the depth latent
        through a GRU-based memory module, producing two 32-dim latent codes:
-       ``hs_latent`` (history-state) and ``priv_latent`` (privilege-state).
+       ``hs_latent`` (history-state) and ``priv_latent`` (privilege-state). Auxiliary depth
+       channels (e.g., ``depth_image_age``, the 10Hz/50Hz frame-age clock signal) are
+       concatenated into the GRU input as well.
 
     3. **Teacher-student distillation**: A frozen teacher MLP provides privileged-information
        targets during distillation training. Auxiliary teacher encoders
@@ -173,15 +175,22 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         print(f"[StudentTeacherDepthImageRecurrent] num_student_basic_obs: {num_student_basic_obs}")
         print(f"[StudentTeacherDepthImageRecurrent] proprio_per_frame: {self.proprio_per_frame}")
 
+        # Auxiliary depth channels (e.g., depth_image_age for 10Hz/50Hz sync) are appended
+        # after the flat depth image. They are fed into the GRU as a clock signal so the
+        # recurrent module knows how stale the current depth frame is.
+        self.depth_aux_dim = max(0, obs[self.depth_obs_group].shape[-1] - self.depth_flat_dim)
+        if self.depth_aux_dim > 0:
+            print(f"[StudentTeacherDepthImageRecurrent] depth_aux_dim: {self.depth_aux_dim}")
+
         # ── Student: Depth CNN ──
         self.depth_cnn = StudentDepthCNN(activation=activation)
         print(f"[StudentTeacherDepthImageRecurrent] Depth CNN: {self.depth_cnn}")
 
-        # ── Student: GRU input MLP (proprio_latest + depth_latent → 64) ──
-        # Input: proprio_per_frame (latest frame) + 32 (depth_latent)
+        # ── Student: GRU input MLP (proprio_latest + depth_aux + depth_latent → 64) ──
+        # Input: proprio_per_frame (latest frame) + depth_aux_dim (age) + 32 (depth_latent)
         # Output: 64 (compact feature for GRU)
         self.gru_input_mlp = MLP(
-            input_dim=self.proprio_per_frame + 32,
+            input_dim=self.proprio_per_frame + self.depth_aux_dim + 32,
             output_dim=64,
             hidden_dims=[128],
             activation=activation,
@@ -448,8 +457,11 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         # ── Depth CNN: extract 32-dim latent ──
         depth_latent = self.depth_cnn(depth_img)  # [B, 32]
 
-        # ── GRU fusion: combine latest proprio + depth latent ──
-        gru_input = torch.cat([prop_latest, depth_latent], dim=-1)  # [B, proprio_per_frame + 32]
+        # ── Depth auxiliary channels (e.g., depth_image_age): clock signal for 10Hz/50Hz sync ──
+        depth_aux = obs[self.depth_obs_group][:, self.depth_flat_dim:]  # [B, depth_aux_dim]
+
+        # ── GRU fusion: combine latest proprio + depth age + depth latent ──
+        gru_input = torch.cat([prop_latest, depth_aux, depth_latent], dim=-1)  # [B, proprio_per_frame + aux + 32]
         gru_feat = self.gru_input_mlp(gru_input)                     # [B, 64]
         gru_out = self.memory(gru_feat).squeeze(0)                   # [B, rnn_hidden_dim]
         latents = self.gru_output_mlp(gru_out)                       # [B, 64]

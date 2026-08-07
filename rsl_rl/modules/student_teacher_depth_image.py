@@ -52,6 +52,12 @@ class StudentTeacherDepthImage(nn.Module):
             assert len(obs[g].shape) == 2, "Student basic observations must be 1D."
             num_student_basic_obs += obs[g].shape[-1]
 
+        # Auxiliary depth channels (e.g., depth_image_age for 10Hz/50Hz sync) are appended
+        # after the flat depth image. They are part of the student's basic observation
+        # vector but are NOT fed into the depth CNN.
+        self.depth_aux_dim = max(0, obs[self.depth_obs_group].shape[-1] - self.depth_flat_dim)
+        num_student_basic_obs += self.depth_aux_dim
+
         self.depth_encoder = DepthImageEncoder(activation=activation)
 
         with torch.no_grad():
@@ -161,12 +167,18 @@ class StudentTeacherDepthImage(nn.Module):
             depth_img = depth_flat[:, :self.depth_flat_dim].view(
                 -1, self.depth_height, self.depth_width, self.depth_channels
             )
+            # Auxiliary channels (e.g., depth_image_age) are kept as part of the
+            # student's basic observation vector.
+            depth_aux = depth_flat[:, self.depth_flat_dim:]
         else:
             depth_img = depth_flat
+            depth_aux = None
 
         depth_features = self.depth_encoder(depth_img)
 
         basic_obs_list = [obs[g] for g in self.student_basic_obs_groups]
+        if depth_aux is not None and depth_aux.shape[-1] > 0:
+            basic_obs_list.append(depth_aux)
         basic_obs = torch.cat(basic_obs_list, dim=-1)
 
         return torch.cat([basic_obs, depth_features], dim=-1)
