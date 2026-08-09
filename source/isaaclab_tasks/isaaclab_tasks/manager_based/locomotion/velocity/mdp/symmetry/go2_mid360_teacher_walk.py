@@ -20,15 +20,12 @@ Observation layout (concatenate_terms=True + history_length, flatten_history_dim
 
     Transformations operate directly on the term-major flat layout (NOT per-frame),
     matching the actual output of the observation manager.
-"""
 
-"""
 打印测试用法示例：
 GO2_SYMMETRY_DEBUG=1 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
     --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz \
     --agent rsl_rl_cfg_entry_point --headless --num_envs 16 2>&1 | tee symm_debug.log
 """
-
 
 from __future__ import annotations
 
