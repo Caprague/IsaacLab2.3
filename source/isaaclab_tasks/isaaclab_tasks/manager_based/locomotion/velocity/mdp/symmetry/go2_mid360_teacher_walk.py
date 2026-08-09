@@ -22,7 +22,7 @@ Observation layout (concatenate_terms=True + history_length, flatten_history_dim
     matching the actual output of the observation manager.
 
 打印测试用法示例：
-GO2_SYMMETRY_DEBUG=1 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
+SYMMETRY_DEBUG_PRINT=1 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
     --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz \
     --agent rsl_rl_cfg_entry_point --headless --num_envs 16 2>&1 | tee symm_debug.log
 """
@@ -44,11 +44,19 @@ __all__ = ["compute_symmetric_states"]
 _SYMMETRY_DEBUG_PRINTED = False
 
 
-# ── TEMP debug: direct original-vs-mirrored verification (GO2_SYMMETRY_DEBUG=1) ──
-def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
-    """Print original vs mirrored values to visually verify the symmetry computation.
+# ── TEMP debug: symmetry verification (SYMMETRY_DEBUG_PRINT=1) ──
+def _print_full_values(label: str, tensor: torch.Tensor, per_line: int = 12) -> None:
+    """Print ALL values of a tensor (flattened), index-labeled, no truncation."""
+    vals = tensor.detach().cpu().reshape(-1).tolist()
+    for i in range(0, len(vals), per_line):
+        chunk = vals[i : i + per_line]
+        print(f"  {label} [{i:5d}:{i + len(chunk):5d}] " + " ".join(f"{v:+.4f}" for v in chunk))
 
-    Gated by env var ``GO2_SYMMETRY_DEBUG=1``; prints only once, for batch 0.
+
+def _debug_verify_symmetry(env, obs: TensorDict, obs_aug: TensorDict) -> None:
+    """Print obs-group config/dims + FULL values + per-item symmetry checks.
+
+    Gated by env var ``SYMMETRY_DEBUG_PRINT=1``; prints only once, for batch 0.
     Mirrored batch starts at index ``obs.batch_size[0]`` inside ``obs_aug``.
     """
     global _SYMMETRY_DEBUG_PRINTED
@@ -59,6 +67,45 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
     batch = obs.batch_size[0]
     print("\n" + "=" * 92)
     print(f"[SYMM-DEBUG] symmetry verification (batch 0; mirrored at batch offset {batch})")
+
+    # ── 1) programmatic obs-group config & dims ──
+    print("\n[SYMM-DEBUG] Observation groups (programmatic):")
+    mgr = getattr(getattr(env, "unwrapped", env), "observation_manager", None)
+    term_names = term_dims = concat = term_cfgs = None
+    if mgr is not None:
+        try:
+            term_names = getattr(mgr, "group_obs_term_names", None) or getattr(mgr, "_group_obs_term_names", {})
+            term_dims = getattr(mgr, "group_obs_term_dim", None) or getattr(mgr, "_group_obs_term_dim", {})
+            concat = getattr(mgr, "group_obs_concatenate", None) or getattr(mgr, "_group_obs_concatenate", {})
+            term_cfgs = getattr(mgr, "_group_obs_term_cfgs", {})
+        except Exception as err:
+            print(f"[SYMM-DEBUG] cannot read observation-manager internals: {err}")
+    for g, t in obs.items():
+        if not isinstance(t, torch.Tensor):
+            continue
+        print(f"  group '{g}': shape={tuple(t.shape)}")
+        if term_names and g in term_names:
+            print(f"    terms={term_names[g]}")
+            print(f"    per-term dims={term_dims.get(g)}")
+            print(f"    concatenate_terms={concat.get(g)}")
+            if term_cfgs and g in term_cfgs:
+                flags = [
+                    (getattr(c, "flatten_history_dim", "?"), getattr(c, "history_length", "?"))
+                    for c in term_cfgs[g]
+                ]
+                print(f"    per-term (flatten_history_dim, history_length)={flags}")
+
+    # ── 2) FULL values of every obs group (batch 0, orig vs mirr) ──
+    print("\n[SYMM-DEBUG] Full values (batch 0, orig vs mirr):")
+    for g, t in obs.items():
+        if not isinstance(t, torch.Tensor):
+            continue
+        print(f"\n  group '{g}' ({t.shape[-1]} values):")
+        _print_full_values("orig", t[0])
+        _print_full_values("mirr", obs_aug[g][batch])
+
+    # ── 3) per-item symmetry checks ──
+    print("\n[SYMM-DEBUG] Per-item checks:")
     all_ok = True
 
     def fmt(v: float) -> str:
@@ -75,7 +122,7 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
             f"expect={fmt(expected)}  {'OK' if ok else 'FAIL'} ({kind})"
         )
 
-    # ---- proprioception: sign flips ----
+    # proprioception: sign flips
     for i, label in [
         (0, "phase.sin"),
         (11, "vel.vy"),
@@ -86,7 +133,7 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
     ]:
         emit("proprioception", label, i, -float(obs["proprioception"][0, i]), "negate")
 
-    # ---- proprioception: joint swaps (hip negated, thigh/calf kept) ----
+    # proprioception: joint swaps (hip negated, thigh/calf kept)
     for i, j, label, hip in [
         (55, 56, "jpos.hip0", True),
         (56, 55, "jpos.hip1", True),
@@ -100,7 +147,7 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
             exp = -exp
         emit("proprioception", label, i, exp, "swap")
 
-    # ---- privileged: sign flips / swaps ----
+    # privileged: sign flips / swaps
     emit("privileged", "linvel.vy", 19, -float(obs["privileged"][0, 19]), "negate")
     for i, j, label in [
         (0, 1, "gait.pair0"),
@@ -112,7 +159,7 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
     ]:
         emit("privileged", label, i, float(obs["privileged"][0, j]), "swap")
 
-    # ---- privileged: foot-height whole-block swaps ----
+    # privileged: foot-height whole-block swaps
     for sl, partner_sl, label in [
         (slice(42, 45), slice(45, 48), "footh.FL<->FR"),
         (slice(48, 51), slice(51, 54), "footh.RL<->RR"),
@@ -126,17 +173,6 @@ def _debug_verify_symmetry(obs: TensorDict, obs_aug: TensorDict) -> None:
             f"orig[{partner_sl.start}:{partner_sl.stop}]  {'OK' if ok else 'FAIL'} (block swap)"
         )
 
-    # ---- raw eyeball samples ----
-    print("  raw proprio[0, :20] orig:", [f"{v:+.2f}" for v in obs["proprioception"][0, :20].tolist()])
-    print(
-        "  raw proprio[0, :20] mirr:",
-        [f"{v:+.2f}" for v in obs_aug["proprioception"][batch, :20].tolist()],
-    )
-    print("  raw priv[0, :24] orig   :", [f"{v:+.2f}" for v in obs["privileged"][0, :24].tolist()])
-    print(
-        "  raw priv[0, :24] mirr   :",
-        [f"{v:+.2f}" for v in obs_aug["privileged"][batch, :24].tolist()],
-    )
     print(f"[SYMM-DEBUG] overall: {'ALL OK' if all_ok else 'MISMATCH FOUND'}")
     print("=" * 92)
 
@@ -195,9 +231,9 @@ def compute_symmetric_states(
     else:
         actions_aug = None
 
-    # TEMP debug: direct original-vs-mirrored verification (GO2_SYMMETRY_DEBUG=1)
-    if _os.environ.get("GO2_SYMMETRY_DEBUG", "0") == "1" and obs is not None and obs_aug is not None:
-        _debug_verify_symmetry(obs, obs_aug)
+    # TEMP debug: symmetry verification (SYMMETRY_DEBUG_PRINT=1)
+    if _os.environ.get("SYMMETRY_DEBUG_PRINT", "0") == "1" and obs is not None and obs_aug is not None:
+        _debug_verify_symmetry(env, obs, obs_aug)
 
     return obs_aug, actions_aug
 
