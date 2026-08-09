@@ -11,10 +11,10 @@ This module handles the 3 observation groups used by ``go2_loco_skill_walk_cfg.p
     - mapScans (history=1, 187 total)
     - privileged (history=3, 18 dims/frame × 3 = 54 total)
 
-Observation layout is identical to ``go2_mid360_teacher_walk.py`` minus the ``headProximity`` group.
-
-Transformations operate per-frame to be robust to the underlying observation storage order
-(concatenate_terms=True + history_length: each group = [frame_0, frame_1, ..., frame_{H-1}]).
+Observation layout is identical to ``go2_mid360_teacher_walk.py`` (term-major):
+    every observation term has its own history buffer (oldest -> newest), is flattened
+    to (H * d), and the term blocks are concatenated in term-definition order.
+    Transformations operate directly on the term-major flat layout (NOT per-frame).
 """
 
 from __future__ import annotations
@@ -88,11 +88,8 @@ def compute_symmetric_states(
 
 
 # ============================================================================================
-# Proprioception: 47 dims/frame × history=5 = 235 total
-#
-# Per-frame layout:
-#   phase(2)  vel_cmd(3)  imu(3)  grav(3)  joint_pos(12)  joint_vel(12)  actions(12)
-#   | 0-1  |  |  2-4  |  | 5-7 |  | 8-10 |  |   11-22   |  |   23-34   |  |  35-46  |
+# Proprioception: 235 total, term-major (history=5)
+#   term blocks: phase(10) vel_cmd(15) imu(15) grav(15) jpos(60) jvel(60) act(60)
 #
 # Phase negation:
 #   In trot gait, left-right mirror advances phase by half a cycle:
@@ -100,49 +97,43 @@ def compute_symmetric_states(
 #     sin(2π·φ') = -sin(2πφ),  cos(2π·φ') = -cos(2πφ)
 # ============================================================================================
 
-PROPRIO_DIMS_PER_FRAME = 47
-
 def _transform_proprioception_left_right(obs: torch.Tensor) -> torch.Tensor:
-    """Left-right symmetry for proprioception (235 dims, history=5, 47/frame)."""
+    """Left-right symmetry for proprioception (235 dims, term-major, history=5)."""
     obs = obs.clone()
     B = obs.shape[0]
-    n_steps = obs.shape[1] // PROPRIO_DIMS_PER_FRAME
-    data = obs.view(B, n_steps, PROPRIO_DIMS_PER_FRAME)  # (B, H, 47)
+    if obs.shape[1] != 235:
+        raise ValueError(f"Expected 235-dim proprioception, got {obs.shape[1]}")
 
-    # phase: dims 0-1  [sin→-sin, cos→-cos]
-    data[:, :, 0:2] *= -1.0
+    # phase block [0:10] (2/frame x 5): sin,cos both negated (half-cycle advance)
+    obs[:, 0:10] *= -1.0
 
-    # velocity commands: dims 2-4  [vx→vx, vy→-vy, ωz→-ωz]
-    data[:, :, 2] *= 1.0
-    data[:, :, 3] *= -1.0
-    data[:, :, 4] *= -1.0
+    # velocity_commands block [10:25] (3/frame x 5): [vx, vy, wz] -> vy, wz negated
+    obs[:, 11:25:3] *= -1.0  # vy positions: 11,14,17,20,23
+    obs[:, 12:25:3] *= -1.0  # wz positions: 12,15,18,21,24
 
-    # imu ang vel: dims 5-7  [ωx→-ωx, ωy→ωy, ωz→-ωz]
-    data[:, :, 5] *= -1.0
-    data[:, :, 6] *= 1.0
-    data[:, :, 7] *= -1.0
+    # imu_ang_vel block [25:40] (3/frame x 5): [wx, wy, wz] -> wx, wz negated
+    obs[:, 25:40:3] *= -1.0  # wx positions: 25,28,31,34,37
+    obs[:, 27:40:3] *= -1.0  # wz positions: 27,30,33,36,39
 
-    # projected gravity: dims 8-10  [gx→gx, gy→-gy, gz→gz]
-    data[:, :, 8] *= 1.0
-    data[:, :, 9] *= -1.0
-    data[:, :, 10] *= 1.0
+    # projected_gravity block [40:55] (3/frame x 5): [gx, gy, gz] -> gy negated
+    obs[:, 41:55:3] *= -1.0  # gy positions: 41,44,47,50,53
 
-    # joint positions: dims 11-22 (12 values)
-    data[:, :, 11:23] = _switch_go2_joints_left_right_vectorized(
-        data[:, :, 11:23].reshape(B * n_steps, 12), repeat=1
-    ).reshape(B, n_steps, 12)
+    # joint_pos_rel block [55:115] (12/frame x 5): swap left-right joints + hip negation
+    obs[:, 55:115] = _switch_go2_joints_left_right_vectorized(
+        obs[:, 55:115].reshape(B * 5, 12), repeat=1
+    ).reshape(B, 60)
 
-    # joint velocities: dims 23-34 (12 values)
-    data[:, :, 23:35] = _switch_go2_joints_left_right_vectorized(
-        data[:, :, 23:35].reshape(B * n_steps, 12), repeat=1
-    ).reshape(B, n_steps, 12)
+    # joint_vel_rel block [115:175]
+    obs[:, 115:175] = _switch_go2_joints_left_right_vectorized(
+        obs[:, 115:175].reshape(B * 5, 12), repeat=1
+    ).reshape(B, 60)
 
-    # last actions: dims 35-46 (12 values)
-    data[:, :, 35:47] = _switch_go2_joints_left_right_vectorized(
-        data[:, :, 35:47].reshape(B * n_steps, 12), repeat=1
-    ).reshape(B, n_steps, 12)
+    # actions block [175:235]
+    obs[:, 175:235] = _switch_go2_joints_left_right_vectorized(
+        obs[:, 175:235].reshape(B * 5, 12), repeat=1
+    ).reshape(B, 60)
 
-    return data.reshape(obs.shape)
+    return obs
 
 
 # ============================================================================================
@@ -162,50 +153,50 @@ def _transform_mapScans_left_right(obs: torch.Tensor) -> torch.Tensor:
 
 
 # ============================================================================================
-# Privileged: 18 dims/frame × history=3 = 54 total
-#
-# Per-frame layout:
-#   gait(2)  contact(4)  lin_vel(3)  feet_dist(4)  base_h(1)  foot_h(4)
-#   | 0-1 |  |  2-5   |  |  6-8  |  |   9-12   |  |  13  |  | 14-17 |
+# Privileged: 54 total, term-major (history=3)
+#   term blocks: gait(6) contact(12) lin_vel(9) feet_dist(12) base_h(3)
+#                FL_foot_h(3) FR_foot_h(3) RL_foot_h(3) RR_foot_h(3)
 # ============================================================================================
 
-PRIV_DIMS_PER_FRAME = 18
-
 def _transform_privileged_left_right(obs: torch.Tensor) -> torch.Tensor:
-    """Left-right symmetry for privileged (54 dims, history=3, 18/frame)."""
+    """Left-right symmetry for privileged (54 dims, term-major, history=3)."""
     obs = obs.clone()
     B = obs.shape[0]
-    n_steps = obs.shape[1] // PRIV_DIMS_PER_FRAME
-    data = obs.view(B, n_steps, PRIV_DIMS_PER_FRAME)  # (B, H, 18)
+    if obs.shape[1] != 54:
+        raise ValueError(f"Expected 54-dim privileged, got {obs.shape[1]}")
 
-    # gait_trot_mask: dims 0-1  swap [pair0, pair1] ↔ [pair1, pair0]
-    data[:, :, 0:2] = _switch_gait_mask_left_right_vectorized(
-        data[:, :, 0:2].reshape(B * n_steps, 2), repeat=1
-    ).reshape(B, n_steps, 2)
+    # gait_trot_mask block [0:6] (2/frame x 3): swap [pair0, pair1] per frame
+    obs[:, 0:6] = _switch_gait_mask_left_right_vectorized(
+        obs[:, 0:6].reshape(B * 3, 2), repeat=1
+    ).reshape(B, 6)
 
-    # feet_contact_mask: dims 2-5  [FL,FR,RL,RR] → [FR,FL,RR,RL]
-    data[:, :, 2:6] = _switch_go2_feets_left_right_vectorized(
-        data[:, :, 2:6].reshape(B * n_steps, 4), repeat=1
-    ).reshape(B, n_steps, 4)
+    # feet_contact_mask block [6:18] (4/frame x 3): [FL,FR,RL,RR] -> [FR,FL,RR,RL]
+    obs[:, 6:18] = _switch_go2_feets_left_right_vectorized(
+        obs[:, 6:18].reshape(B * 3, 4), repeat=1
+    ).reshape(B, 12)
 
-    # base_lin_vel: dims 6-8  [vx→vx, vy→-vy, vz→vz]
-    data[:, :, 6] *= 1.0
-    data[:, :, 7] *= -1.0
-    data[:, :, 8] *= 1.0
+    # base_lin_vel block [18:27] (3/frame x 3): [vx, vy, vz] -> vy negated
+    obs[:, 19:27:3] *= -1.0  # vy positions: 19,22,25
 
-    # feet_distance: dims 9-12  [FL,FR,RL,RR] → [FR,FL,RR,RL]
-    data[:, :, 9:13] = _switch_go2_feets_left_right_vectorized(
-        data[:, :, 9:13].reshape(B * n_steps, 4), repeat=1
-    ).reshape(B, n_steps, 4)
+    # feet_distance block [27:39] (4/frame x 3): swap feet
+    obs[:, 27:39] = _switch_go2_feets_left_right_vectorized(
+        obs[:, 27:39].reshape(B * 3, 4), repeat=1
+    ).reshape(B, 12)
 
-    # base_height: dim 13  unchanged (height is symmetric)
+    # base_height block [39:42] (3): unchanged (height is symmetric)
 
-    # foot heights: dims 14-17  [FL,FR,RL,RR] → [FR,FL,RR,RL]
-    data[:, :, 14:18] = _switch_go2_feets_left_right_vectorized(
-        data[:, :, 14:18].reshape(B * n_steps, 4), repeat=1
-    ).reshape(B, n_steps, 4)
+    # foot-height blocks: FL[42:45] FR[45:48] RL[48:51] RR[51:54]
+    # under left-right mirror: FL<->FR, RL<->RR (swap whole term blocks)
+    fl = obs[:, 42:45].clone()
+    fr = obs[:, 45:48].clone()
+    rl = obs[:, 48:51].clone()
+    rr = obs[:, 51:54].clone()
+    obs[:, 42:45] = fr
+    obs[:, 45:48] = fl
+    obs[:, 48:51] = rr
+    obs[:, 51:54] = rl
 
-    return data.reshape(obs.shape)
+    return obs
 
 
 # ============================================================================================

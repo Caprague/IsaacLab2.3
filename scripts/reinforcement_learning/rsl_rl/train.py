@@ -34,6 +34,12 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument(
+    "--verify_obs_layout",
+    action="store_true",
+    default=False,
+    help="Temporary runtime probe: dump real observation layout (term-major vs frame-major) and exit.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -109,6 +115,119 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+def _classify_proprio_layout(t: torch.Tensor) -> None:
+    """Phase-pair energy test: (sin*3)^2 + (cos*3)^2 == 9 for real phase pairs."""
+    n = t.shape[-1]
+    if n != 235:
+        print(f"[PROBE] proprioception dims {n} != 235; skip phase classifier")
+        return
+    h, per_frame = 5, 47
+    term_major_idx = [(2 * k, 2 * k + 1) for k in range(h)]  # term-major: phase block flat[0:10]
+    frame_major_idx = [(k * per_frame, k * per_frame + 1) for k in range(h)]  # frame-major: step starts
+
+    def energy(idxs):
+        vals = [float(t[0, i] ** 2 + t[0, j] ** 2) for i, j in idxs]
+        return sum(vals) / len(vals)
+
+    e_tm, e_fm = energy(term_major_idx), energy(frame_major_idx)
+    verdict = "TERM-MAJOR" if abs(e_tm - 9.0) < abs(e_fm - 9.0) else "FRAME-MAJOR"
+    print(
+        "[PROBE] proprioception phase-pair energy: "
+        f"term-major={e_tm:.3f} frame-major={e_fm:.3f} (phase scale=3 -> expect 9.0)"
+    )
+    print(f"[PROBE] >>> proprioception layout verdict: {verdict}")
+
+
+def _classify_privileged_layout(t: torch.Tensor) -> None:
+    """Contact-mask binary test: feet_contact_mask values are exactly 0/3 (scale=3)."""
+    n = t.shape[-1]
+    if n != 54:
+        print(f"[PROBE] privileged dims {n} != 54; skip contact classifier")
+        return
+
+    def binary_fraction(slices):
+        vals = torch.cat([t[0, sl] for sl in slices])
+        return float(((vals == 0.0) | (vals == 3.0)).float().mean())
+
+    # term-major: contact block flat[6:18] (4/frame x 3 frames)
+    f_tm = binary_fraction([slice(6, 18)])
+    # frame-major: contact at flat[2:6], [20:24], [38:42]
+    f_fm = binary_fraction([slice(2, 6), slice(20, 24), slice(38, 42)])
+    verdict = "TERM-MAJOR" if f_tm > f_fm else "FRAME-MAJOR"
+    print(
+        "[PROBE] privileged contact-mask binary fraction: "
+        f"term-major={f_tm:.3f} frame-major={f_fm:.3f}"
+    )
+    print(f"[PROBE] >>> privileged layout verdict: {verdict}")
+
+
+def _verify_obs_layout(env, probe_steps: int = 12) -> None:
+    """Temporary runtime probe: dump real observation layout and classify term/frame-major.
+
+    Only used for debugging via ``--verify_obs_layout``; exits before training.
+    """
+    print("\n" + "=" * 90)
+    print("[PROBE] Observation-layout verification (temporary runtime probe)")
+    device = env.device
+
+    # 1) Fill history buffers with a few dummy steps
+    obs = env.get_observations()
+    for _ in range(probe_steps):
+        dummy = torch.zeros(env.num_envs, env.num_actions, device=device)
+        obs, _, _, _ = env.step(dummy)
+    print(f"[PROBE] Filled history with {probe_steps} dummy steps.")
+
+    # 2) Observation-manager config summary (expected layout)
+    mgr = getattr(env.unwrapped, "observation_manager", None)
+    if mgr is not None:
+        try:
+            term_names = getattr(mgr, "group_obs_term_names", None) or getattr(
+                mgr, "_group_obs_term_names", {}
+            )
+            term_dims = getattr(mgr, "group_obs_term_dim", None) or getattr(
+                mgr, "_group_obs_term_dim", {}
+            )
+            concat = getattr(mgr, "group_obs_concatenate", None) or getattr(
+                mgr, "_group_obs_concatenate", {}
+            )
+            term_cfgs = getattr(mgr, "_group_obs_term_cfgs", {})
+        except Exception as err:
+            print(f"[PROBE] cannot read manager internals: {err}")
+            term_names, term_dims, concat, term_cfgs = {}, {}, {}, {}
+        for group_name in ("proprioception", "privileged", "proprioception_noised"):
+            if group_name not in term_names:
+                continue
+            print(f"[PROBE] config[{group_name}] terms={term_names[group_name]}")
+            print(f"          per-term dims={term_dims.get(group_name)}")
+            print(f"          concatenate_terms={concat.get(group_name)}")
+            if group_name in term_cfgs:
+                flags = [
+                    (getattr(c, "flatten_history_dim", "?"), getattr(c, "history_length", "?"))
+                    for c in term_cfgs[group_name]
+                ]
+                print(f"          per-term (flatten_history_dim, history_length)={flags}")
+    else:
+        print("[PROBE] observation_manager not found (non-manager env); skip config summary.")
+
+    # 3) Real flat value samples
+    for group_name in ("proprioception", "privileged", "proprioception_noised"):
+        if group_name in obs:
+            t = obs[group_name]
+            print(f"[PROBE] obs[{group_name}] shape={tuple(t.shape)}")
+            if t.dim() == 2:
+                print(f"          first 24 values: {t[0, :24].tolist()}")
+            elif t.dim() == 3:
+                print(f"          last frame first 24: {t[0, -1, :24].tolist()}")
+
+    # 4) Empirical layout classification
+    if "proprioception" in obs and obs["proprioception"].dim() == 2:
+        _classify_proprio_layout(obs["proprioception"])
+    if "privileged" in obs and obs["privileged"].dim() == 2:
+        _classify_privileged_layout(obs["privileged"])
+    print("[PROBE] Done.")
+    print("=" * 90)
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -193,6 +312,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+
+    # TEMP: runtime observation-layout verification probe (exits before training)
+    if args_cli.verify_obs_layout:
+        _verify_obs_layout(env)
+        print("[PROBE] Exiting without training (--verify_obs_layout).")
+        return
 
     # create runner from rsl-rl
     if agent_cfg.class_name == "OnPolicyRunner":
