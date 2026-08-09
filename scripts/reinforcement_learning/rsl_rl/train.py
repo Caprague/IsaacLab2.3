@@ -34,6 +34,12 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument(
+    "--startup_log_seconds",
+    type=float,
+    default=180.0,
+    help="Capture startup stdout/stderr into <log_dir>/train_startup.log for this many seconds (0 = disable).",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -75,6 +81,7 @@ if version.parse(installed_version) < version.parse(RSL_RL_VERSION):
 
 """Rest everything follows."""
 
+import atexit
 import logging
 import os
 import time
@@ -109,6 +116,60 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+class _StartupTee:
+    """Tee one stream (stdout or stderr) into a shared startup .log file for a limited window.
+
+    After the deadline, the next write restores BOTH streams automatically via
+    ``on_deadline`` (which calls :meth:`restore` on every tee).
+    """
+
+    def __init__(self, original, log_file, deadline, on_deadline):
+        self._original = original
+        self._file = log_file
+        self._deadline = deadline
+        self._on_deadline = on_deadline
+        self._active = True
+
+    def write(self, data: str) -> int:
+        if self._active and time.time() >= self._deadline:
+            self._on_deadline()
+        if self._active:
+            self._file.write(data)
+            self._file.flush()
+        self._original.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def restore(self) -> None:
+        if not self._active:
+            return
+        self._active = False
+        if sys.stdout is self:
+            sys.stdout = self._original
+        if sys.stderr is self:
+            sys.stderr = self._original
+        self._file.flush()
+
+    def fileno(self) -> int:
+        return self._original.fileno()
+
+    def isatty(self) -> bool:
+        return self._original.isatty()
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+
+def _close_startup_tee(tees, log_file) -> None:
+    """Restore all tee streams and close the shared log file (idempotent)."""
+    for tee in tees:
+        tee.restore()
+    if log_file is not None and not log_file.closed:
+        log_file.close()
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -166,6 +227,29 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
 
+    # capture startup stdout/stderr into <log_dir>/train_startup.log for a short window
+    startup_tees, startup_log_file = [], None
+    if args_cli.startup_log_seconds > 0:
+        os.makedirs(log_dir, exist_ok=True)
+        startup_log_path = os.path.join(log_dir, "train_startup.log")
+        startup_log_file = open(startup_log_path, "w", encoding="utf-8")
+        startup_deadline = time.time() + args_cli.startup_log_seconds
+
+        def _restore_all_startup_tees():
+            for tee in startup_tees:
+                tee.restore()
+
+        startup_tees = [
+            _StartupTee(sys.stdout, startup_log_file, startup_deadline, _restore_all_startup_tees),
+            _StartupTee(sys.stderr, startup_log_file, startup_deadline, _restore_all_startup_tees),
+        ]
+        sys.stdout, sys.stderr = startup_tees
+        print(
+            f"[INFO] Capturing startup output to {startup_log_path} "
+            f"for {args_cli.startup_log_seconds:.0f}s"
+        )
+        atexit.register(_close_startup_tee, startup_tees, startup_log_file)
+
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
@@ -174,7 +258,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if agent_cfg.resume or agent_cfg.algorithm.class_name in ("Distillation", "DistillationAlign"):
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     # wrap for video recording
@@ -204,7 +288,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # load the checkpoint
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if agent_cfg.resume or agent_cfg.algorithm.class_name in ("Distillation", "DistillationAlign"):
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
@@ -217,6 +301,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
 
     print(f"Training time: {round(time.time() - start_time, 2)} seconds")
+
+    # stop capturing startup output (also restored automatically at exit)
+    _close_startup_tee(startup_tees, startup_log_file)
 
     # close the simulator
     env.close()

@@ -181,6 +181,8 @@ Stage4（DistillationAlign 学生蒸馏）
 | `rsl_rl/networks/student_depth_cnn.py`、`memory.py` | 学生 CNN / GRU 记忆模块 |
 | `rsl_rl/algorithms/distillation.py`、`distillation_align.py` | 原蒸馏算法 / 对齐蒸馏算法 |
 | `rsl_rl/runners/distillation_runner.py`、`storage/rollout_storage.py` | 蒸馏 runner / rollout 存储 |
+| `.../mdp/symmetry/go2_mid360_teacher_walk.py`、`go2_skill_walk.py` | 教师左右对称增强（term 主序） |
+| `scripts/reinforcement_learning/rsl_rl/train.py` | 训练入口（含 `--verify_obs_layout` 探针、`DistillationAlign` 加载门控） |
 
 ---
 
@@ -192,7 +194,10 @@ Stage4（DistillationAlign 学生蒸馏）
 4. **删除 AE 预训练**：`scripts/tools/encoder_pretrain/` 移除，改为教师 PPO 端到端训练编码器；
 5. **教师双编码器**：`ActorCriticScan`（scan 187→32 + privilege 54→32，actor 输入 299）；
 6. **学生双嵌入**：GRU 输出 depth_latent + privilege_latent（学生 MLP 输入 346）；
-7. **显式特征对齐蒸馏**：`DistillationAlign`（BC + 加权 latent 对齐），yaw 辅助任务未纳入（无相关适配设定）。
+7. **显式特征对齐蒸馏**：`DistillationAlign`（BC + 加权 latent 对齐），yaw 辅助任务未纳入（无相关适配设定）；
+8. **对称增强 term 主序修复**：`go2_mid360_teacher_walk.py`/`go2_skill_walk.py` 的 proprio/privileged 变换从"帧主序 view"改为 term 主序扁平索引操作；经 `--verify_obs_layout` 实测确认环境为 term 主序，`SYMMETRY_DEBUG_PRINT` 运行时逐项验证 **ALL OK**；
+9. **调试工具**：`train.py --verify_obs_layout`（布局探针：观测组配置/维度 + 全量数值 + 经验判定）；对称函数 `SYMMETRY_DEBUG_PRINT=1`（通用环境变量，打印观测组配置与维度、orig/mirr 全量数值、逐项 OK/FAIL）；
+10. **蒸馏加载门控修复**：`train.py`/`train_attention.py` 的 checkpoint 加载条件扩展为 `("Distillation", "DistillationAlign")`，修复 `DistillationAlign` 启动时不加载教师 checkpoint 的阻断问题。
 
 ---
 
@@ -201,6 +206,11 @@ Stage4（DistillationAlign 学生蒸馏）
 - **对齐权重**：`align_weight_depth` / `align_weight_privilege`（当前 1.0/1.0），可按 loss 分量调；
 - **`teacher_driving`**：可选开启（约 2500 iter 前教师驱动，DAgger 风格）；
 - **yaw 预测头**：未实现（如需可后续补充环境 yaw 真值观测）；
+- **对齐损失量级监控**：`align_depth`/`align_privilege`（32 维未归一化 latent MSE）与 `behavior`（12 维 action MSE）量级可能差异大，首轮观察三分量曲线，必要时调 `align_weight_*`；
+- **GRU 隐状态初始化（已知局限）**：`Distillation.update()` 每 epoch 从上一 update 末尾的 hidden state 续起（首个 update 从零开始），非严格 rollout 序列对齐；`gradient_length=10` 下影响有限；
+- **学生续训**：`load_state_dict` 的 student 分支为 `strict=True`，续训时保持配置一致，中途改配置会导致加载失败；
+- **部署前验证**：GRU 学生策略的 JIT/ONNX 导出支持需确认（`play.py` 已正确重置 done 环境 hidden state）；
+- **已知噪声源**：深度图含机器人自身肢体/负载自遮挡像素，CNN 需自行忽略；当前 `dropout_prob=0.0`，如需传感器鲁棒性可酌情开 0.05；
 - **验证**：需在训练主机重训 Stage1–3（新教师架构）→ Stage4'（对齐蒸馏），对比 base 学生 4.7 与教师上限 5.0；
 - **checkpoint 兼容性**：新教师/学生结构与旧版不兼容，旧 GRU checkpoint 无法复用；base 环境管线不受影响。
 
