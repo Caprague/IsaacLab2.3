@@ -14,9 +14,8 @@ from tensordict import TensorDict
 from torch.distributions import Normal
 from typing import Any, NoReturn
 
-from rsl_rl.networks import MLP, EmpiricalNormalization, HiddenState, Memory
+from rsl_rl.networks import MLP, EmpiricalNormalization, HiddenState, Memory, ScanEncoder, PrivilegeEncoder
 from rsl_rl.networks.student_depth_cnn import StudentDepthCNN
-from rsl_rl.networks.teacher_encoders import HeightScanEncoder, PrivilegeEncoder
 
 
 class StudentTeacherDepthImageRecurrent(nn.Module):
@@ -28,15 +27,17 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
        of shape ``[B, 1, 32, 180]`` into a compact 32-dimensional latent vector.
 
     2. **GRU temporal fusion**: Fuses the latest proprioceptive frame with the depth latent
-       through a GRU-based memory module, producing two 32-dim latent codes:
-       ``hs_latent`` (history-state) and ``priv_latent`` (privilege-state). Auxiliary depth
-       channels (e.g., ``depth_image_age``, the 10Hz/50Hz frame-age clock signal) are
-       concatenated into the GRU input as well.
+       through a GRU-based memory module, producing two compact latent codes:
+       ``depth_latent`` (32, aligned to the teacher's ``scan_latent``) and
+       ``privilege_latent`` (32, aligned to the teacher's ``privilege_latent``).
+       Auxiliary depth channels (e.g., ``depth_image_age``, the 10Hz/50Hz frame-age
+       clock signal) are concatenated into the GRU input as well.
 
-    3. **Teacher-student distillation**: A frozen teacher MLP provides privileged-information
-       targets during distillation training. Auxiliary teacher encoders
-       (:class:`HeightScanEncoder`, :class:`PrivilegeEncoder`) are initialized for future
-       use but their weights must be loaded separately.
+    3. **Teacher-student distillation with latent alignment**: A frozen teacher policy
+       (actor MLP + scan encoder + privilege encoder) provides privileged-information
+       action targets. During distillation the student's ``depth_latent``/``privilege_latent``
+       are regressed to the teacher's frozen ``scan_latent``/``privilege_latent``
+       (detached), and combined with the behavior-cloning loss (see ``DistillationAlign``).
 
     Architecture::
 
@@ -48,17 +49,16 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
                                                                               │
                                                                               ▼
                                                                       gru_output_mlp
-                                                                         /        \
-                                                            hs_latent [B,32]   priv_latent [B,32]
-                                                                   \              /
-                                                                    ▼            ▼
-                                                    Concat with prop_all ──► Student MLP ──► actions
+                                                                            │
+                                                   depth_latent [B,32] + privilege_latent [B,32]
+                                                                             │
+                                                     Concat with prop_all ──► Student MLP ──► actions
 
     .. note::
-        The teacher encoders (HeightScanEncoder, PrivilegeEncoder) are initialized but
-        their weights must be loaded separately from a pre-trained model checkpoint.
-        They are not used in the forward pass until their weights are loaded and the
-        distillation logic is extended.
+        The teacher scan/privilege encoders are trained jointly inside the teacher policy
+        during PPO (see ``ActorCriticScan``). During distillation their weights are loaded
+        from the teacher checkpoint (keys ``scan_encoder.*``/``privilege_encoder.*``) and
+        frozen together with the teacher MLP.
 
     Args:
         obs: Example observation TensorDict for inferring dimensions.
@@ -131,6 +131,8 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         # ── Flags ──
         self.loaded_teacher = False
         self.teacher_recurrent = teacher_recurrent
+        self._last_student_depth_latent = None
+        self._last_student_privilege_latent = None
 
         # ── Save obs groups ──
         self.obs_groups = obs_groups
@@ -215,7 +217,9 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         )
         print(f"[StudentTeacherDepthImageRecurrent] Memory: {self.memory}")
 
-        # ── Student: GRU output MLP (rnn_hidden_dim → 64, split into hs + priv) ──
+        # ── Student: GRU output MLP (rnn_hidden_dim → depth_latent + privilege_latent) ──
+        # The GRU outputs two 32-dim latent codes aligned to the teacher's
+        # scan_latent / privilege_latent during distillation (DistillationAlign).
         self.gru_output_mlp = MLP(
             input_dim=rnn_hidden_dim,
             output_dim=64,
@@ -224,8 +228,9 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         )
         print(f"[StudentTeacherDepthImageRecurrent] GRU output MLP: {self.gru_output_mlp}")
 
-        # ── Student: Policy MLP (prop_all + hs_latent + priv_latent → actions) ──
-        num_student_input = num_student_basic_obs + 32 + 32  # prop_all(history) + hs_latent + priv_latent
+        # ── Student: Policy MLP (prop_all + depth_latent + privilege_latent → actions) ──
+        num_student_input = num_student_basic_obs + 32 + 32  # prop_all(history) + two latents
+        print(f"[StudentTeacherDepthImageRecurrent] num_student_input: {num_student_input}")
         self.student = MLP(
             input_dim=num_student_input,
             output_dim=num_actions,
@@ -241,35 +246,69 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         else:
             self.student_obs_normalizer = torch.nn.Identity()
 
-        # ── Teacher: Auxiliary encoders ──
-        self.height_scan_encoder = HeightScanEncoder()
-        self.privilege_encoder = PrivilegeEncoder()
-        print(f"[StudentTeacherDepthImageRecurrent] HeightScanEncoder: {self.height_scan_encoder}")
-        print(f"[StudentTeacherDepthImageRecurrent] PrivilegeEncoder: {self.privilege_encoder}")
-
-        # ── Teacher: Observation dimensions ──
+        # ── Teacher: Observation dimensions and scan boundaries ──
+        self.teacher_groups = obs_groups["teacher"]
+        self.teacher_scan_obs_group = "mapScans"
+        self.teacher_privilege_obs_group = "privileged"
         num_teacher_obs = 0
-        for obs_group in obs_groups["teacher"]:
+        self._teacher_scan_start: int | None = None
+        self._teacher_scan_end: int | None = None
+        self._teacher_priv_start: int | None = None
+        self._teacher_priv_end: int | None = None
+        for obs_group in self.teacher_groups:
             assert len(obs[obs_group].shape) == 2, (
                 f"Teacher observation group '{obs_group}' must be 1D (shape [B, D]), "
                 f"got shape {obs[obs_group].shape}"
             )
-            num_teacher_obs += obs[obs_group].shape[-1]
+            dim = obs[obs_group].shape[-1]
+            if obs_group == self.teacher_scan_obs_group:
+                self._teacher_scan_start = num_teacher_obs
+                self._teacher_scan_end = num_teacher_obs + dim
+            if obs_group == self.teacher_privilege_obs_group:
+                self._teacher_priv_start = num_teacher_obs
+                self._teacher_priv_end = num_teacher_obs + dim
+            num_teacher_obs += dim
+        assert self._teacher_scan_start is not None and self._teacher_scan_end is not None, (
+            f"Teacher scan observation group '{self.teacher_scan_obs_group}' not found in "
+            f"teacher groups {self.teacher_groups}"
+        )
+        assert self._teacher_priv_start is not None and self._teacher_priv_end is not None, (
+            f"Teacher privilege observation group '{self.teacher_privilege_obs_group}' not found in "
+            f"teacher groups {self.teacher_groups}"
+        )
         print(f"[StudentTeacherDepthImageRecurrent] num_teacher_obs: {num_teacher_obs}")
+        num_teacher_obs_encoded = num_teacher_obs - (
+            self._teacher_scan_end - self._teacher_scan_start
+        ) - (self._teacher_priv_end - self._teacher_priv_start) + 32 + 32
+        print(f"[StudentTeacherDepthImageRecurrent] num_teacher_obs_encoded: {num_teacher_obs_encoded}")
+
+        # ── Teacher: Scan encoder (mirror of ActorCriticScan.scan_encoder) ──
+        self.teacher_scan_encoder = ScanEncoder(latent_dim=32, activation=activation)
+        print(f"[StudentTeacherDepthImageRecurrent] Teacher ScanEncoder: {self.teacher_scan_encoder}")
+
+        # ── Teacher: Privilege encoder (mirror of ActorCriticScan.privilege_encoder) ──
+        self.teacher_privilege_encoder = PrivilegeEncoder(
+            input_dim=self._teacher_priv_end - self._teacher_priv_start,
+            latent_dim=32,
+            activation=activation,
+        )
+        print(
+            f"[StudentTeacherDepthImageRecurrent] Teacher PrivilegeEncoder: {self.teacher_privilege_encoder}"
+        )
 
         # ── Teacher: Recurrent memory (optional) ──
         if self.teacher_recurrent:
             self.memory_t = Memory(
-                input_size=num_teacher_obs,
+                input_size=num_teacher_obs_encoded,
                 hidden_dim=rnn_hidden_dim,
                 num_layers=rnn_num_layers,
                 type=rnn_type,
             )
             print(f"[StudentTeacherDepthImageRecurrent] Teacher Memory: {self.memory_t}")
 
-        # ── Teacher: Policy MLP (raw observations → actions) ──
+        # ── Teacher: Policy MLP (proprio + scan_latent + privilege_latent → actions) ──
         self.teacher = MLP(
-            input_dim=num_teacher_obs,
+            input_dim=num_teacher_obs_encoded,
             output_dim=num_actions,
             hidden_dims=teacher_hidden_dims,
             activation=activation,
@@ -280,9 +319,17 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         # ── Teacher observation normalization ──
         self.teacher_obs_normalization = teacher_obs_normalization
         if teacher_obs_normalization:
-            self.teacher_obs_normalizer = EmpiricalNormalization(num_teacher_obs)
+            self.teacher_obs_normalizer = EmpiricalNormalization(num_teacher_obs_encoded)
         else:
             self.teacher_obs_normalizer = torch.nn.Identity()
+
+        # ── Teacher is always frozen during distillation ──
+        for param in self.teacher.parameters():
+            param.requires_grad = False
+        for param in self.teacher_scan_encoder.parameters():
+            param.requires_grad = False
+        for param in self.teacher_privilege_encoder.parameters():
+            param.requires_grad = False
 
         # ── Action noise ──
         self.noise_std_type = noise_std_type
@@ -483,13 +530,18 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         gru_out = self.memory(gru_feat).squeeze(0)                   # [B, rnn_hidden_dim]
         latents = self.gru_output_mlp(gru_out)                       # [B, 64]
 
-        # Split latents: hs (history-state) and priv (privilege-state)
-        hs_latent = latents[:, :32]   # [B, 32]
-        priv_latent = latents[:, 32:] # [B, 32]
+        # Extract the two latent codes: depth_latent (aligned to teacher scan_latent)
+        # and privilege_latent (aligned to teacher privilege_latent).
+        depth_latent = latents[:, :32]         # [B, 32]
+        privilege_latent = latents[:, 32:]     # [B, 32]
+        self._last_student_depth_latent = depth_latent
+        self._last_student_privilege_latent = privilege_latent
 
-        # ── Student MLP: combine full proprio history + latents ──
+        # ── Student MLP: combine full proprio history + two latents ──
         prop_all_norm = self.student_obs_normalizer(prop_all)  # [B, num_student_basic_obs]
-        student_input = torch.cat([prop_all_norm, hs_latent, priv_latent], dim=-1)
+        student_input = torch.cat(
+            [prop_all_norm, depth_latent, privilege_latent], dim=-1
+        )  # [B, num_student_basic_obs + 64]
         action_mean = self.student(student_input)  # [B, num_actions]
 
         if sample:
@@ -532,13 +584,52 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         Returns:
             Teacher action tensor of shape ``[B, num_actions]``.
         """
-        obs = self.get_teacher_obs(obs)
-        obs = self.teacher_obs_normalizer(obs)
+        teacher_flat = self.get_teacher_obs(obs)  # [B, num_teacher_obs]
+        scan = teacher_flat[:, self._teacher_scan_start : self._teacher_scan_end]
+        scan_latent = self.teacher_scan_encoder.encode(scan)  # [B, 32]
+        priv = teacher_flat[:, self._teacher_priv_start : self._teacher_priv_end]
+        privilege_latent = self.teacher_privilege_encoder.encode(priv)  # [B, 32]
+        teacher_in = torch.cat(
+            [
+                teacher_flat[:, : self._teacher_scan_start],
+                scan_latent,
+                teacher_flat[:, self._teacher_scan_end : self._teacher_priv_start],
+                privilege_latent,
+                teacher_flat[:, self._teacher_priv_end :],
+            ],
+            dim=-1,
+        )  # [B, num_teacher_obs_encoded]
+        teacher_in = self.teacher_obs_normalizer(teacher_in)
         with torch.no_grad():
             if self.teacher_recurrent:
                 self.memory_t.eval()
-                obs = self.memory_t(obs).squeeze(0)
-            return self.teacher(obs)
+                teacher_in = self.memory_t(teacher_in).squeeze(0)
+            return self.teacher(teacher_in)
+
+    def get_student_latents(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the student's latest ``(depth_latent, privilege_latent)``.
+
+        Populated during :meth:`act_inference` / :meth:`act`; used by the
+        alignment losses in ``DistillationAlign``.
+        """
+        return self._last_student_depth_latent, self._last_student_privilege_latent
+
+    def get_teacher_latents(self, obs: TensorDict) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute the frozen teacher's ``(scan_latent, privilege_latent)`` as alignment targets.
+
+        Args:
+            obs: Observation TensorDict containing teacher observation groups.
+
+        Returns:
+            Tuple of teacher ``scan_latent`` and ``privilege_latent`` (no grad).
+        """
+        teacher_flat = self.get_teacher_obs(obs)  # [B, num_teacher_obs]
+        scan = teacher_flat[:, self._teacher_scan_start : self._teacher_scan_end]
+        priv = teacher_flat[:, self._teacher_priv_start : self._teacher_priv_end]
+        with torch.no_grad():
+            scan_latent = self.teacher_scan_encoder.encode(scan)
+            privilege_latent = self.teacher_privilege_encoder.encode(priv)
+        return scan_latent, privilege_latent
 
     # ═══════════════════════════════════════════════════════════════════════════
     #  Hidden State Management
@@ -583,8 +674,8 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         # Teacher and its components are always frozen during distillation
         self.teacher.eval()
         self.teacher_obs_normalizer.eval()
-        self.height_scan_encoder.eval()
-        self.privilege_encoder.eval()
+        self.teacher_scan_encoder.eval()
+        self.teacher_privilege_encoder.eval()
 
     def update_normalization(self, obs: TensorDict) -> None:
         """Update the running statistics of the student observation normalizer.
@@ -608,12 +699,13 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         Supports two loading modes:
 
         1. **Teacher-only loading**: If the state dict keys contain ``"actor"``,
-           only the teacher MLP and its normalizer are loaded (with key remapping).
+           the teacher MLP (``actor.*``), its scan encoder (``scan_encoder.*``) and
+           its normalizer (``actor_obs_normalizer.*``) are loaded with key remapping.
            If :attr:`teacher_recurrent` is ``True``, the teacher memory
            (``"memory_a."`` → ``"memory_t."``) is also loaded.
 
         2. **Full student loading**: If the state dict keys contain ``"student"``,
-           the complete student state dict (including CNN, GRU, and encoders) is loaded.
+           the complete student state dict (including CNN, GRU, and student MLP) is loaded.
 
         Args:
             state_dict: State dictionary of the model.
@@ -630,14 +722,36 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         if any("actor" in key for key in state_dict):
             # ── Teacher-only loading (from RL training checkpoint) ──
             teacher_state_dict = {}
+            teacher_scan_state_dict = {}
+            teacher_privilege_state_dict = {}
             teacher_obs_normalizer_state_dict = {}
             for key, value in state_dict.items():
                 if "actor." in key:
                     teacher_state_dict[key.replace("actor.", "")] = value
+                elif "scan_encoder." in key:
+                    teacher_scan_state_dict[key.replace("scan_encoder.", "")] = value
+                elif "privilege_encoder." in key:
+                    teacher_privilege_state_dict[key.replace("privilege_encoder.", "")] = value
                 if "actor_obs_normalizer." in key:
                     teacher_obs_normalizer_state_dict[key.replace("actor_obs_normalizer.", "")] = value
-            self.teacher.load_state_dict(teacher_state_dict, strict=strict)
-            self.teacher_obs_normalizer.load_state_dict(teacher_obs_normalizer_state_dict, strict=strict)
+            self.teacher.load_state_dict(teacher_state_dict, strict=False)
+            if teacher_scan_state_dict:
+                self.teacher_scan_encoder.load_state_dict(teacher_scan_state_dict, strict=False)
+                print("[INFO] Loaded teacher scan encoder weights from checkpoint.")
+            else:
+                print(
+                    "[WARN] Checkpoint does not contain 'scan_encoder.*' weights! "
+                    "Teacher scan encoder stays randomly initialized."
+                )
+            if teacher_privilege_state_dict:
+                self.teacher_privilege_encoder.load_state_dict(teacher_privilege_state_dict, strict=False)
+                print("[INFO] Loaded teacher privilege encoder weights from checkpoint.")
+            else:
+                print(
+                    "[WARN] Checkpoint does not contain 'privilege_encoder.*' weights! "
+                    "Teacher privilege encoder stays randomly initialized."
+                )
+            self.teacher_obs_normalizer.load_state_dict(teacher_obs_normalizer_state_dict, strict=False)
 
             # Also load teacher recurrent memory if applicable
             if self.teacher_recurrent:

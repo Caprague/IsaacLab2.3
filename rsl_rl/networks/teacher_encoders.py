@@ -95,20 +95,17 @@ class HeightScanEncoder(nn.Module):
 
 
 class PrivilegeEncoder(nn.Module):
-    """AutoEncoder for privilege (teacher) features.
+    """Encode-only encoder for privilege (teacher) features.
 
     Encodes a multi-dimensional privilege vector into a compact latent
-    representation via MLP layers, and decodes it back for reconstruction.
+    representation via MLP layers. It is trained end-to-end inside the teacher
+    policy during PPO (Parkour-style), and its latent is aligned to the
+    student's ``privilege_latent`` during distillation.
 
     Encoder architecture:
         [B, input_dim] → Linear(input_dim→128) → ELU
         → Linear(128→64) → ELU
         → Linear(64→latent_dim) → [B, latent_dim]
-
-    Decoder architecture:
-        [B, latent_dim] → Linear(latent_dim→64) → ELU
-        → Linear(64→128) → ELU
-        → Linear(128→input_dim) → [B, input_dim]
 
     Args:
         input_dim: Dimension of the input privilege vector. Defaults to 54 (18 per frame * 3 history).
@@ -132,15 +129,6 @@ class PrivilegeEncoder(nn.Module):
             nn.Linear(64, latent_dim),
         )
 
-        # Decoder: expects [B, latent_dim], outputs [B, input_dim]
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 64),
-            resolve_nn_activation(activation),
-            nn.Linear(64, 128),
-            resolve_nn_activation(activation),
-            nn.Linear(128, input_dim),
-        )
-
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode privilege vector into latent representation.
 
@@ -153,26 +141,6 @@ class PrivilegeEncoder(nn.Module):
         """
         return self.encoder(x)
 
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        """Decode latent representation back to privilege vector.
-
-        Args:
-            z: Latent tensor of shape ``[B, latent_dim]``.
-
-        Returns:
-            Reconstructed tensor of shape ``[B, input_dim]``.
-
-        """
-        return self.decoder(z)
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Full autoencoder forward pass: encode then decode.
-
-        Args:
-            x: Input tensor of shape ``[B, input_dim]``.
-
-        Returns:
-            Reconstructed tensor of shape ``[B, input_dim]``.
-
-        """
-        return self.decode(self.encode(x))
+        """Alias for :meth:`encode`."""
+        return self.encode(x)

@@ -75,6 +75,30 @@ class RslRlPpoActorCriticDepthImageCfg(RslRlPpoActorCriticCfg):
     """The policy class name. Default is ActorCriticDepthImage."""
 
 
+@configclass
+class RslRlPpoActorCriticScanCfg(RslRlPpoActorCriticCfg):
+    """Configuration for the PPO actor-critic networks with a scan encoder.
+
+    The teacher policy encodes the privileged height scan (``mapScans``) into a
+    compact latent that is trained end-to-end during PPO (Parkour-style).
+    """
+
+    class_name: str = "ActorCriticScan"
+    """The policy class name. Default is ActorCriticScan."""
+
+    scan_obs_group: str = "mapScans"
+    """The observation group to encode with the scan encoder. Default is mapScans."""
+
+    scan_latent_dim: int = 32
+    """The latent dimension of the scan encoder. Default is 32."""
+
+    privilege_obs_group: str = "privileged"
+    """The observation group to encode with the privilege encoder. Default is privileged."""
+
+    privilege_latent_dim: int = 32
+    """The latent dimension of the privilege encoder. Default is 32."""
+
+
 ############################
 # Algorithm configurations #
 ############################

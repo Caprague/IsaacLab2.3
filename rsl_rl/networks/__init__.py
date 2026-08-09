@@ -14,6 +14,7 @@ from .scan_cnn_encoder import ScanCNNEncoder
 from .depth_image_encoder import DepthImageEncoder
 from .teacher_encoders import HeightScanEncoder, PrivilegeEncoder
 from .student_depth_cnn import StudentDepthCNN
+from .scan_encoder import ScanEncoder
 
 __all__ = [
     "MLP",
@@ -27,4 +28,5 @@ __all__ = [
     "HeightScanEncoder",
     "PrivilegeEncoder",
     "StudentDepthCNN",
+    "ScanEncoder",
 ]

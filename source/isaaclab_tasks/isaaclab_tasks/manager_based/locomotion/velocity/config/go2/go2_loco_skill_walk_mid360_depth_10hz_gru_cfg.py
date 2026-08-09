@@ -7,8 +7,8 @@
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
     --task Go2-Loco-Skill-Walk-Mid360Depth-10Hz-GRU \
     --agent rsl_rl_distillation_cfg_entry_point \
-    --load_run ".*_pretrain_teacher" \
-    --checkpoint "model_teacher" \
+    --load_run ".*" \
+    --checkpoint "model_6000" \
     --headless --num_envs 4096
 """
 

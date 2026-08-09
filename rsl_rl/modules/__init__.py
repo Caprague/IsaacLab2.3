@@ -6,6 +6,7 @@
 """Definitions for neural-network components for RL-agents."""
 
 from .actor_critic import ActorCritic
+from .actor_critic_scan import ActorCriticScan
 from .actor_critic_recurrent import ActorCriticRecurrent
 from .actor_critic_depth_image import ActorCriticDepthImage
 from .rnd import RandomNetworkDistillation, resolve_rnd_config
@@ -19,6 +20,7 @@ from .actor_critic_attention import ActorCriticAttention
 
 __all__ = [
     "ActorCritic",
+    "ActorCriticScan",
     "ActorCriticRecurrent",
     "ActorCriticDepthImage",
     "ActorCriticAttention",

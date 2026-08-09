@@ -12,7 +12,7 @@ from collections import deque
 from tensordict import TensorDict
 
 import rsl_rl
-from rsl_rl.algorithms import Distillation
+from rsl_rl.algorithms import Distillation, DistillationAlign
 from rsl_rl.env import VecEnv
 from rsl_rl.modules import StudentTeacher, StudentTeacherRecurrent, StudentTeacherDepthImage, StudentTeacherDepthImageRecurrent
 from rsl_rl.runners import OnPolicyRunner
@@ -43,6 +43,11 @@ class DistillationRunner(OnPolicyRunner):
         # Query observations from environment for algorithm construction
         obs = self.env.get_observations()
         self.cfg["obs_groups"] = resolve_obs_groups(obs, self.cfg["obs_groups"], default_sets=["teacher"])
+        print("[INFO] Resolved obs groups and shapes:")
+        for group_name, group_list in self.cfg["obs_groups"].items():
+            shapes = {g: list(obs[g].shape) for g in group_list if g in obs}
+            print(f"  {group_name}: {group_list} -> {shapes}")
+        self.print_interval = self.cfg.get("print_interval", 100)
 
         # Create the algorithm
         self.alg = self._construct_algorithm(obs)
@@ -62,10 +67,9 @@ class DistillationRunner(OnPolicyRunner):
     def load(self, path: str, load_optimizer: bool = True, map_location: str | None = None) -> dict:
         """Load model checkpoint, including pretrained teacher encoder weights.
 
-        Extends ``OnPolicyRunner.load()`` to also load ``HeightScanEncoder`` and
-        ``PrivilegeEncoder`` weights from the checkpoint (e.g., ``model_teacher.pt``
-        produced by ``pretrain_teacher_encoders.py``). These weights are loaded and
-        frozen for distillation training.
+        Extends ``OnPolicyRunner.load()`` to also load the teacher scan encoder
+        weights (``scan_encoder.*`` keys, trained jointly inside the teacher policy
+        during PPO). These weights are loaded and frozen for distillation training.
 
         When loading from a teacher PPO checkpoint (``resumed_training == False``),
         the encoder weights are loaded from the top-level checkpoint keys.
@@ -86,43 +90,23 @@ class DistillationRunner(OnPolicyRunner):
 
         # Load model (teacher MLP from PPO, or full student from distillation checkpoint)
         resumed_training = self.alg.policy.load_state_dict(loaded_dict["model_state_dict"])
+        print(f"[INFO] Loading checkpoint: {path}")
+        print(f"  checkpoint_iter: {loaded_dict.get('iter', 'N/A')}  resumed_training: {resumed_training}")
+        model_keys = list(loaded_dict.get("model_state_dict", {}).keys())
+        print(
+            "  keys -> actor: {}, scan_encoder: {}, privilege_encoder: {}, student: {}".format(
+                sum(1 for k in model_keys if "actor." in k),
+                sum(1 for k in model_keys if "scan_encoder." in k),
+                sum(1 for k in model_keys if "privilege_encoder." in k),
+                sum(1 for k in model_keys if "student" in k),
+            )
+        )
 
         # Load optimizer if resuming from a distillation checkpoint
         if load_optimizer and resumed_training and "optimizer_state_dict" in loaded_dict:
             self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
         if resumed_training:
             self.current_learning_iteration = loaded_dict["iter"]
-
-        # Load pretrained teacher encoder weights (only when loading from a teacher
-        # checkpoint, not resuming from a student checkpoint where encoders are
-        # already in model_state_dict)
-        if not resumed_training and hasattr(self.alg.policy, "height_scan_encoder"):
-            enc_loaded = False
-            if "height_scan_encoder" in loaded_dict:
-                # checkpoint stores encoder-only state_dict (hs_ae.encoder.state_dict()),
-                # so load into the .encoder submodule, not the full HeightScanEncoder
-                self.alg.policy.height_scan_encoder.encoder.load_state_dict(
-                    loaded_dict["height_scan_encoder"]
-                )
-                enc_loaded = True
-            if "privilege_encoder" in loaded_dict:
-                self.alg.policy.privilege_encoder.encoder.load_state_dict(
-                    loaded_dict["privilege_encoder"]
-                )
-                enc_loaded = True
-            if enc_loaded:
-                # Freeze encoder parameters for distillation
-                for p in self.alg.policy.height_scan_encoder.parameters():
-                    p.requires_grad = False
-                for p in self.alg.policy.privilege_encoder.parameters():
-                    p.requires_grad = False
-                self.alg.policy.height_scan_encoder.eval()
-                self.alg.policy.privilege_encoder.eval()
-                print("[INFO] Loaded and froze pretrained teacher encoders from checkpoint")
-            else:
-                print("[WARN] Checkpoint does not contain pretrained encoder weights!")
-                print("[WARN] Teacher encoders will remain randomly initialized.")
-                print("[WARN] Run pretrain_teacher_encoders.py to generate encoder weights first.")
 
         return loaded_dict.get("infos", {})
 
@@ -200,6 +184,13 @@ class DistillationRunner(OnPolicyRunner):
 
             # Update policy
             loss_dict = self.alg.update()
+
+            if it % self.print_interval == 0:
+                total_timesteps = (it + 1) * self.num_steps_per_env * self.env.num_envs
+                print(
+                    f"[TRAIN] iter {it} | timesteps {total_timesteps} | "
+                    + " | ".join(f"{k}: {v:.4f}" for k, v in loss_dict.items())
+                )
 
             stop = time.time()
             learn_time = stop - start

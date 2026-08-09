@@ -115,6 +115,20 @@ class RslRlDistillationAlgorithmCfg:
     """The loss type to use for the student policy."""
 
 
+@configclass
+class RslRlDistillationAlignAlgorithmCfg(RslRlDistillationAlgorithmCfg):
+    """Configuration for the distillation algorithm with latent alignment."""
+
+    class_name: str = "DistillationAlign"
+    """The algorithm class name. Default is DistillationAlign."""
+
+    align_weight_depth: float = 1.0
+    """Weight of the depth/scan latent alignment loss. Default is 1.0."""
+
+    align_weight_privilege: float = 1.0
+    """Weight of the privilege latent alignment loss. Default is 1.0."""
+
+
 #########################
 # Runner configurations #
 #########################

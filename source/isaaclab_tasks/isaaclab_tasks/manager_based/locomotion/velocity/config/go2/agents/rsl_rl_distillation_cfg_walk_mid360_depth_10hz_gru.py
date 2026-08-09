@@ -6,7 +6,7 @@
 from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl import (
-    RslRlDistillationAlgorithmCfg,
+    RslRlDistillationAlignAlgorithmCfg,
     RslRlDistillationRunnerCfg,
     RslRlDistillationStudentTeacherDepthImageRecurrentCfg,
 )
@@ -14,7 +14,7 @@ from isaaclab_rl.rsl_rl import (
 
 @configclass
 class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
-    num_steps_per_env = 60
+    num_steps_per_env = 120
     max_iterations = 8001
     teacher_driving = False
     teacher_driving_switch_iter = 0
@@ -37,11 +37,13 @@ class UnitreeGo2LocoSkillDistillationRunnerCfg(RslRlDistillationRunnerCfg):
         rnn_num_layers=1,
         teacher_recurrent=False,
     )
-    algorithm = RslRlDistillationAlgorithmCfg(
+    algorithm = RslRlDistillationAlignAlgorithmCfg(
         num_learning_epochs=2,
         learning_rate=1.0e-3,
         gradient_length=10,
         optimizer="adam",
         loss_type="mse",
+        align_weight_depth=1.0,
+        align_weight_privilege=1.0,
     )
 
