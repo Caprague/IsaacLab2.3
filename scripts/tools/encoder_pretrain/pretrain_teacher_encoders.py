@@ -33,7 +33,7 @@ Usage:
         --headless --num_envs 1024 --total_steps 20000 --train_every 100
 
 See Also:
-    docs/go2_analysis_docs/go2_gru_student_policy_architecture_redesign.md
+    docs/go2_analysis_docs/失败分析-Go2-Mid360Depth-10Hz-GRU-时序融合.md
 """
 
 """Launch Isaac Sim Simulator first."""
