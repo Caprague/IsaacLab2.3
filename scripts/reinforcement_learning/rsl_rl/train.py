@@ -227,6 +227,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
 
+    # save resume path before creating a new log_dir
+    # NOTE: must run BEFORE the startup-log capture below creates the new run directory,
+    # otherwise get_checkpoint_path (default run_dir=".*") would select the empty new run
+    # and fail with "No checkpoints ... match 'model_.*.pt'".
+    if agent_cfg.resume or agent_cfg.algorithm.class_name in ("Distillation", "DistillationAlign"):
+        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+
     # capture startup stdout/stderr into <log_dir>/train_startup.log for a short window
     startup_tees, startup_log_file = [], None
     if args_cli.startup_log_seconds > 0:
@@ -256,10 +263,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
-
-    # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name in ("Distillation", "DistillationAlign"):
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     # wrap for video recording
     if args_cli.video:
