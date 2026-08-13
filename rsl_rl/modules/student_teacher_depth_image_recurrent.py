@@ -181,6 +181,7 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
             f"Student proprioceptive observation dimension ({num_student_basic_obs}) "
             f"must be divisible by the history length ({history_length})"
         )
+        self.num_student_basic_obs = num_student_basic_obs
         self.proprio_per_frame = num_student_basic_obs // history_length
 
         print(f"[StudentTeacherDepthImageRecurrent] num_student_basic_obs: {num_student_basic_obs}")
