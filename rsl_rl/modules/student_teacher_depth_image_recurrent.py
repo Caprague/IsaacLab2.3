@@ -209,13 +209,13 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         print(f"[StudentTeacherDepthImageRecurrent] GRU input MLP: {self.gru_input_mlp}")
 
         # ── Student: Memory (GRU/LSTM) ──
-        self.memory = Memory(
+        self.memory_s = Memory(
             input_size=64,
             hidden_dim=rnn_hidden_dim,
             num_layers=rnn_num_layers,
             type=rnn_type,
         )
-        print(f"[StudentTeacherDepthImageRecurrent] Memory: {self.memory}")
+        print(f"[StudentTeacherDepthImageRecurrent] Memory: {self.memory_s}")
 
         # ── Student: GRU output MLP (rnn_hidden_dim → depth_latent + privilege_latent) ──
         # The GRU outputs two 32-dim latent codes aligned to the teacher's
@@ -367,7 +367,7 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
             hidden_states: Tuple of ``(student_hidden_state, teacher_hidden_state)``
                 to use when resetting unconditionally.
         """
-        self.memory.reset(dones, hidden_states[0])
+        self.memory_s.reset(dones, hidden_states[0])
         if self.teacher_recurrent:
             self.memory_t.reset(dones, hidden_states[1])
 
@@ -527,7 +527,7 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
         # ── GRU fusion: combine latest proprio + depth age + depth latent ──
         gru_input = torch.cat([prop_latest, depth_aux, depth_latent], dim=-1)  # [B, proprio_per_frame + aux + 32]
         gru_feat = self.gru_input_mlp(gru_input)                     # [B, 64]
-        gru_out = self.memory(gru_feat).squeeze(0)                   # [B, rnn_hidden_dim]
+        gru_out = self.memory_s(gru_feat).squeeze(0)                 # [B, rnn_hidden_dim]
         latents = self.gru_output_mlp(gru_out)                       # [B, 64]
 
         # Extract the two latent codes: depth_latent (aligned to teacher scan_latent)
@@ -643,8 +643,8 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
             If :attr:`teacher_recurrent` is ``False``, the teacher hidden state is ``None``.
         """
         if self.teacher_recurrent:
-            return self.memory.hidden_state, self.memory_t.hidden_state
-        return self.memory.hidden_state, None
+            return self.memory_s.hidden_state, self.memory_t.hidden_state
+        return self.memory_s.hidden_state, None
 
     def detach_hidden_states(self, dones: torch.Tensor | None = None) -> None:
         """Detach hidden states from the computation graph for truncated BPTT.
@@ -653,7 +653,7 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
             dones: Boolean tensor indicating which environments have terminated.
                 If ``None``, detaches all hidden states unconditionally.
         """
-        self.memory.detach_hidden_state(dones)
+        self.memory_s.detach_hidden_state(dones)
         if self.teacher_recurrent:
             self.memory_t.detach_hidden_state(dones)
 
@@ -768,6 +768,14 @@ class StudentTeacherDepthImageRecurrent(nn.Module):
 
         elif any("student" in key for key in state_dict):
             # ── Full student loading (from distillation checkpoint) ──
+            # Backward compatibility: checkpoints saved before the student memory was renamed
+            # from "memory" to "memory_s" use the "memory." key prefix. Remap these keys so
+            # existing distillation checkpoints can still be resumed without retraining.
+            if any(key.startswith("memory.") for key in state_dict):
+                state_dict = {
+                    (f"memory_s.{key[len('memory.'):]}" if key.startswith("memory.") else key): value
+                    for key, value in state_dict.items()
+                }
             super().load_state_dict(state_dict, strict=strict)
             self.loaded_teacher = True
             self.teacher.eval()
