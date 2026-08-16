@@ -150,5 +150,18 @@ class RslRlDistillationRunnerCfg(RslRlBaseRunnerCfg):
     teacher_driving: bool = False
     """Whether to use teacher driving for data collection (DAgger-style). Default is False."""
 
+    teacher_driving_mode: str = "all"
+    """Teacher driving mode. Default is "all".
+
+    - ``"all"``: all environments are driven by the teacher until
+      ``teacher_driving_switch_iter``, then all environments switch to the student
+      (legacy behaviour).
+    - ``"mixed"``: a random subset of environments (``teacher_driving_ratio``) is
+      driven by the teacher throughout training, while the rest are student-driven.
+    """
+
     teacher_driving_switch_iter: int = 0
     """The iteration number at which driving switches from teacher to student. Default is 0."""
+
+    teacher_driving_ratio: float = 0.0
+    """Fraction of environments driven by the teacher in ``"mixed"`` mode. Default is 0.0."""

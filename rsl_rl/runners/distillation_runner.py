@@ -38,7 +38,18 @@ class DistillationRunner(OnPolicyRunner):
 
         # Teacher driving configuration (DAgger-style)
         self.teacher_driving = self.cfg.get("teacher_driving", False)
+        self.teacher_driving_mode = self.cfg.get("teacher_driving_mode", "all")
         self.teacher_driving_switch_iter = self.cfg.get("teacher_driving_switch_iter", 0)
+        self.teacher_driving_ratio = float(self.cfg.get("teacher_driving_ratio", 0.0))
+        if self.teacher_driving_mode not in ("all", "mixed"):
+            raise ValueError(
+                f"Unknown teacher_driving_mode: {self.teacher_driving_mode}. "
+                "Should be 'all' or 'mixed'."
+            )
+        if not 0.0 <= self.teacher_driving_ratio <= 1.0:
+            raise ValueError(
+                f"teacher_driving_ratio must be in [0.0, 1.0], got {self.teacher_driving_ratio}."
+            )
 
         # Query observations from environment for algorithm construction
         obs = self.env.get_observations()
@@ -144,14 +155,26 @@ class DistillationRunner(OnPolicyRunner):
         tot_iter = start_iter + num_learning_iterations
         for it in range(start_iter, tot_iter):
             start = time.time()
-            # Switch logging for teacher-to-student driving transition
-            if self.teacher_driving and it == self.teacher_driving_switch_iter:
+            # (Re-)sample the teacher-driven environment mask for mixed mode (per rollout)
+            teacher_driving_mask = None
+            if self.teacher_driving and self.teacher_driving_mode == "mixed":
+                teacher_driving_mask = self._sample_teacher_driving_mask()
+                if it == start_iter:
+                    print(
+                        f"[INFO] Mixed teacher driving enabled: "
+                        f"{teacher_driving_mask.sum().item()}/{self.env.num_envs} envs "
+                        f"teacher-driven (ratio {self.teacher_driving_ratio:.2f})"
+                    )
+            # Switch logging for teacher-to-student driving transition (legacy "all" mode)
+            if self.teacher_driving and self.teacher_driving_mode == "all" and it == self.teacher_driving_switch_iter:
                 print(f"[INFO] Switching from teacher driving to student driving at iteration {it}")
             # Rollout
             with torch.inference_mode():
                 for _ in range(self.num_steps_per_env):
                     # Sample actions
-                    if self.teacher_driving and it < self.teacher_driving_switch_iter:
+                    if self.teacher_driving and self.teacher_driving_mode == "mixed":
+                        actions = self.alg.mixed_act(obs, teacher_driving_mask)
+                    elif self.teacher_driving and it < self.teacher_driving_switch_iter:
                         actions = self.alg.teacher_act(obs)
                     else:
                         actions = self.alg.act(obs)
@@ -217,6 +240,18 @@ class DistillationRunner(OnPolicyRunner):
         # Save the final model after training
         if self.log_dir is not None and not self.disable_logs:
             self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
+
+    def _sample_teacher_driving_mask(self) -> torch.Tensor:
+        """Sample a boolean mask selecting environments driven by the teacher (mixed mode).
+
+        The mask is re-sampled at the start of every rollout so that the teacher-driven
+        subset changes over training while the proportion stays at
+        ``teacher_driving_ratio``.
+
+        Returns:
+            Boolean mask of shape ``[num_envs]``.
+        """
+        return torch.rand(self.env.num_envs, device=self.device) < self.teacher_driving_ratio
 
     def _construct_algorithm(self, obs: TensorDict) -> Distillation:
         """Construct the distillation algorithm."""

@@ -109,6 +109,34 @@ class Distillation:
             self.transition.observations = obs
         return self.transition.actions
 
+    def mixed_act(self, obs: TensorDict, teacher_mask: torch.Tensor) -> torch.Tensor:
+        """Compute actions for a mix of student- and teacher-driven environments.
+
+        The student policy runs on all environments so its recurrent hidden states stay
+        continuous across driving-role switches. The teacher actions are used both to
+        drive the masked environments and as the distillation targets for all
+        environments.
+
+        Args:
+            obs: Observation TensorDict.
+            teacher_mask: Boolean tensor of shape ``[num_envs]`` selecting the
+                environments driven by the teacher.
+
+        Returns:
+            Merged action tensor of shape ``[num_envs, num_actions]``.
+        """
+        # Student actions for all environments (keeps student memory continuous)
+        student_actions = self.policy.act(obs).detach()
+        # Teacher actions for all environments (targets + drivers for masked envs)
+        teacher_actions = self.policy.evaluate(obs).detach()
+        # Merge: teacher drives the masked environments, student drives the rest
+        merged_actions = torch.where(teacher_mask.unsqueeze(-1), teacher_actions, student_actions)
+        # Record the transition
+        self.transition.actions = merged_actions
+        self.transition.privileged_actions = teacher_actions
+        self.transition.observations = obs
+        return merged_actions
+
     def process_env_step(
         self, obs: TensorDict, rewards: torch.Tensor, dones: torch.Tensor, extras: dict[str, torch.Tensor]
     ) -> None:
