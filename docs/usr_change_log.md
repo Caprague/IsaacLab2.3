@@ -1,6 +1,70 @@
 # 用户变更日志
 <!-- 按时间倒序排列，最新修改在最顶部 -->
 
+## v0.1.7 (2026-08-10 ~ 08-13)
+
+### 新增功能
+
+- **Parkour 式教师策略网络**：新增 `ActorCriticScan` 网络与 `ScanEncoder` 扫描编码器，教师策略在 PPO 阶段端到端联合训练高度扫描编码（`mapScans`→32维 `scan_latent`）与特权编码（`privileged`→32维 `privilege_latent`），训练出的教师 checkpoint 原生包含编码器权重，蒸馏时直接加载并冻结
+- **GRU 深度图学生-教师网络完整实现**：`StudentTeacherDepthImageRecurrent` 完成深度图 CNN（180×32）→ 32维 `depth_latent` → 与最新本体帧、`depth_image_age` 帧龄信号拼接 → GRU 时序融合 → 输出 `depth_latent`/`privilege_latent` 双 32维 latent → 与本体历史拼接进学生 MLP 的完整管线，支持 `teacher_recurrent` 选项
+- **潜空间对齐蒸馏算法 DistillationAlign**：新增蒸馏算法，在行为克隆损失基础上叠加深度/特权 latent 对齐损失（MSE，教师 latent 冻结 detach），通过 `align_weight_depth`/`align_weight_privilege` 控制权重，配套 `RslRlDistillationAlignAlgorithmCfg` 配置类
+- **深度图循环策略专用导出**：`exporter.py` 新增 JIT/ONNX 专用导出类，完整复刻 CNN+GRU 融合前向，按网络类型自动派发，解决标准导出器结构不匹配问题
+- **训练日志增强**：`train.py` 新增 `--startup_log_seconds` 启动日志捕获（stdout/stderr 同时写入 `<log_dir>/train_startup.log`）；蒸馏 runner 打印观测组形状与周期训练损失
+- **文档整理**：`docs` 目录重构为 `Go2相关`（Go2参考改进/Go2训练总结/Go2训练管线），新增 Parkour 参考与训练管线总结文档
+
+### Bug修复
+
+- **Play 导出 AttributeError**：学生记忆模块按 rsl_rl 惯例命名为 `memory_s`（原为 `memory`），修复 exporter 访问 `policy.memory_s.rnn` 崩溃；`load_state_dict` 增加旧 checkpoint `memory.*` 键兼容映射，已有模型无需重训
+- **ONNX 导出形状不匹配**：标准导出器将 GRU 输出直接喂给学生 MLP（`1x256 vs 346x512`）导致导出失败，新增专用导出器按真实前向导出 `policy.pt/policy.onnx`
+- **train.py resume 失败**：在新建 `log_dir` 之前解析 checkpoint 路径，避免 `get_checkpoint_path` 默认匹配到空 run 目录导致 "No checkpoints" 错误；`DistillationAlign` 纳入断点续训加载条件（含 `train_attention.py`）
+- **左右对称变换修正**：`compute_symmetric_states` 改为直接在 term-major 扁平观测布局上操作（原实现按 frame 假设，与实际观测布局不符），同步修正教师阶段观测处理
+- **教师编码器加载机制重构**：删除"预训练编码器单独加载"流程，改为从教师 PPO checkpoint 直接加载 `scan_encoder.*`/`privilege_encoder.*` 权重并冻结
+
+### 修改文件
+
+- `rsl_rl/modules/student_teacher_depth_image_recurrent.py` - GRU 深度图学生网络完整实现、`memory_s` 命名、旧 checkpoint 兼容加载
+- `rsl_rl/algorithms/distillation_align.py` - 新增潜空间对齐蒸馏算法（DistillationAlign）
+- `rsl_rl/modules/actor_critic_scan.py` - 新增 Parkour 式教师策略网络（ActorCriticScan）
+- `rsl_rl/networks/scan_encoder.py` - 新增高度扫描编码器（ScanEncoder）
+- `rsl_rl/networks/teacher_encoders.py` - `PrivilegeEncoder` 改为仅编码（移除 decoder）
+- `rsl_rl/runners/distillation_runner.py` - 教师编码器从 checkpoint 加载、观测组形状与训练损失打印
+- `rsl_rl/runners/on_policy_runner.py` - 支持 `ActorCriticScan` 网络
+- `scripts/reinforcement_learning/rsl_rl/train.py` - 启动日志捕获、resume 修复、`DistillationAlign` 断点续训支持
+- `scripts/reinforcement_learning/rsl_rl/train_attention.py` - `DistillationAlign` 断点续训支持
+- `source/isaaclab_rl/isaaclab_rl/rsl_rl/exporter.py` - 深度图循环策略专用 JIT/ONNX 导出器
+- `source/isaaclab_rl/isaaclab_rl/rsl_rl/distillation_cfg.py` - 新增 `RslRlDistillationAlignAlgorithmCfg`
+- `source/isaaclab_rl/isaaclab_rl/rsl_rl/rl_cfg.py` - 新增 `RslRlPpoActorCriticScanCfg`
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/mdp/symmetry/go2_mid360_teacher_walk.py` - 左右对称变换修正
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/mdp/symmetry/go2_skill_walk.py` - 左右对称变换修正
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_distillation_cfg_walk_mid360_depth_10hz_gru.py` - 改用 `DistillationAlign` 配置
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/agents/rsl_rl_ppo_cfg_walk_mid360_depth_10hz_gru.py` - 改用 `RslRlPpoActorCriticScanCfg`
+- `source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go2/go2_loco_skill_walk_mid360_depth_10hz_gru_cfg.py` - 训练命令与默认 stage 更新
+
+### 新增文件
+
+- `rsl_rl/algorithms/distillation_align.py` - 潜空间对齐蒸馏算法
+- `rsl_rl/modules/actor_critic_scan.py` - Parkour 式教师策略网络
+- `rsl_rl/networks/scan_encoder.py` - 高度扫描编码器
+- `docs/Go2相关/Go2参考改进/参考-Parkour-GRU方案训练改进.md` - Parkour GRU 方案训练改进参考
+- `docs/Go2相关/Go2训练管线/总结-Go2-Mid360Depth-10Hz-GRU-训练管线.md` - GRU 训练管线总结
+- `docs/Go2相关/Go2训练管线/总结-Go2-Mid360Depth-10Hz-训练管线.md` - 训练管线总结
+- `docs/Go2相关/` - Go2参考改进/Go2训练总结/Go2训练管线 目录重构（原 `docs/ref_analysis_docs`、`docs/go2_analysis_docs` 文档迁移）
+
+### 删除文件
+
+- `scripts/tools/encoder_pretrain/pretrain_teacher_encoders.py` - 编码器预训练脚本（改为教师策略 PPO 联合训练）
+- `scripts/tools/encoder_pretrain/visualize_encoder_reconstruction.py` - 编码器重建可视化脚本（同上）
+- `docs/verify_mid360_symmetry_full.py` - 对称性验证脚本
+- `docs/verify_symmetry.py` - 对称性验证脚本
+
+### 配置优化
+
+- **教师 PPO 配置**：改用 `RslRlPpoActorCriticScanCfg`，启用 `scan_obs_group=mapScans`、`privilege_obs_group=privileged`（latent 32维）
+- **蒸馏训练配置**：改用 `RslRlDistillationAlignAlgorithmCfg`，启用 latent 对齐损失（`align_weight_depth=1.0`、`align_weight_privilege=1.0`），`num_steps_per_env` 60→120
+- **环境默认阶段**：`Go2LocomotionSkillEnvCfg` 默认 `stage` 由 `stage4` 改为 `stage1`；训练命令示例更新为从 `model_6000` 断点加载
+
+---
+
 ## v0.1.4 (2026-07-20 ~ 07-25)
 
 ### 新增功能
